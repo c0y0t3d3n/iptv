@@ -98,13 +98,16 @@ def check_acct(url,user,pw):
         return url, user, pw, None, None,str(e), None, {}
 
 def fetch_lineup(url,user,pw):
-    cats=dict( (e['category_id'],e['category_name']) for e in xtream_request(url,user,pw,'get_live_categories') \
-        if GROUPS is None or e['category_name'] in GROUPS_INCLUDE \
-        or any(e['category_name'].startswith(f) for f in GROUPS_STARTSWITH) \
-        or any(e['category_name'].endswith(f) for f in GROUPS_ENDSWITH) \
-        and not any (e['category_name'].startswith(f) for f in GROUPS_EXCLUDE) )
-    logging.info('groups: %s',list(cats.values()))
-    streams=[s for s in xtream_request(url,user,pw,'get_live_streams') if s['category_id'] in cats or any(c.upper() in s['name'].upper() for c in STREAMS_INCLUDE)]
+    cats=dict( (e['category_id'],e['category_name']) for e in xtream_request(url,user,pw,'get_live_categories') )
+    filtered_cats=dict( (i,n) for i,n in cats.items() \
+        if GROUPS is None or n in GROUPS_INCLUDE \
+        or any(n.startswith(f) for f in GROUPS_STARTSWITH) \
+        or any(n.endswith(f) for f in GROUPS_ENDSWITH) \
+        and not any (n.startswith(f) for f in GROUPS_EXCLUDE) )
+    logging.info('groups: %s',list(filtered_cats.values()))
+    streams=[s for s in xtream_request(url,user,pw,'get_live_streams') \
+        if s['category_id'] in filtered_cats \
+        or any(c.upper() in s['name'].upper() for c in STREAMS_INCLUDE)]
     #remove and rename streams
     out=[]
     for s in streams:
@@ -119,7 +122,7 @@ def fetch_lineup(url,user,pw):
                 if n.endswith(p[:-1]):
                     n=n[:-len(p[:-1])]
             else: n=n.replace(p,'')
-        out.append([n,s['stream_id']])
+        out.append([n,s['stream_id'],cats[s['category_id']]])
     streams=out
     #replace channels if channel+pattern exists
     for r in REPLACE:
@@ -136,6 +139,7 @@ def fetch_lineup(url,user,pw):
     return dict ((int(s[1]), {
         'GuideName':s[0], 
         'GuideNumber':s[0], 
+        'GuideCategory':s[2],
         'URL':'http://%s:%s/stream/%s'%(SERVER_IP,SERVER_PORT,s[1])
         } )for s in streams)
 
@@ -286,8 +290,11 @@ class HDHR_handler(http.server.BaseHTTPRequestHandler):
                         html+='%s %s %s %s/%s %s %s\n'%a[:-1]
                 html+='\n'
                 if LINEUP:
-                    for c in LINEUP.values():
-                        html+='<a href="%(URL)s">%(GuideName)s</a>\n'%c
+                    cats=set(l['GuideCategory'] for l in LINEUP.values())
+                    for g in cats:
+                        html+=g+'\n'
+                        for c in [l for l in LINEUP.values() if l['GuideCategory']==g]:
+                            html+='   <a href="%(URL)s">%(GuideName)s</a>\n'%c
                 self.send_response(200)
                 self.end_headers()
             except Exception as e:
