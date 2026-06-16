@@ -9,6 +9,9 @@ import http.server
 import subprocess
 import logging
 
+global PROCS
+PROCS={}
+
 def config(config_file):
     ENV_VARS=['SERVER_IP','SERVER_PORT','CMD','DELAY','DIRECT','GROUPS','STREAMS','STRIP','REPLACE','FORMAT','BUFFER','LOGLEVEL','TUNER_COUNT']
 
@@ -198,7 +201,7 @@ class HDHR_handler(http.server.BaseHTTPRequestHandler):
             self.send_response(404)
             self.end_headers()
     def do_GET(self):
-        global CONFIG_FILE,ACCTS,LINEUP
+        global CONFIG_FILE,ACCTS,LINEUP,PROCS
         if self.path.startswith('/stream/'):
             stream_id=int(self.path.split('/stream/')[-1])
             if stream_id in LINEUP:
@@ -225,11 +228,12 @@ class HDHR_handler(http.server.BaseHTTPRequestHandler):
                     self.end_headers()
                 else:
                     # remux with ffmpeg
-                    cmd = CMD % url
-                    logging.info('starting %s', cmd)
+                    args = CMD % url
+                    logging.info('starting %s', args)
                     try:
-                        cmd = subprocess.Popen(cmd.split(), shell=False, stdout=subprocess.PIPE)
+                        cmd = subprocess.Popen(args.split(), shell=False, stdout=subprocess.PIPE)
                         logging.info('pid %s running', cmd.pid)
+                        PROCS[cmd.pid]=(self.client_address,args)
                     except Exception as e:
                         logging.exception(e)
                         self.send_response(500)
@@ -248,6 +252,7 @@ class HDHR_handler(http.server.BaseHTTPRequestHandler):
                     cmd.stdout.close() # will stop cmd
                     cmd.wait()
                     logging.info('pid %s stopped (%d)', cmd.pid, cmd.returncode)
+                    del PROCS[cmd.pid]
                 return
         elif self.path=='/discover.json':
             self.send_response(200)
@@ -279,6 +284,9 @@ class HDHR_handler(http.server.BaseHTTPRequestHandler):
             return
         elif self.path=='/':
             html='<head></head><body><pre>'
+            for pid,args in PROCS.items():
+                html+='client %s %s %s\n'%(pid,*args)
+            html+='\n'
             try:
                 env=config(CONFIG_FILE)
                 LINEUP = scan(CONFIG_FILE)
