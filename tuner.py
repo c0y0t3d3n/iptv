@@ -50,7 +50,6 @@ def config(config_file):
         globals()[e]=os.getenv(e,globals()[e])
 
     #parse config
-    PARSED_VARS=['GROUPS_INCLUDE', 'GROUPS_EXCLUDE', 'GROUPS_STARTSWITH', 'GROUPS_ENDSWITH', 'STREAMS_EXCLUDE', 'STREAMS_INCLUDE']
     global GROUPS_INCLUDE, GROUPS_EXCLUDE, GROUPS_STARTSWITH, GROUPS_ENDSWITH, STREAMS_EXCLUDE, STREAMS_INCLUDE
     # channel groups
     GROUPS=GROUPS.split(',')
