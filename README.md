@@ -28,5 +28,5 @@ DIRECT=1 will bypass ffmpeg remuxing and redirect clients to the remote stream U
 
 Info page with stream links is at http://localhost:5004/ (or the IP:PORT you have it running on)
 
-Will pick the account with the most open slots per stream request.\
-When Plex requests a channel scan or you visit the info page the config and accounts will be reloaded, and the lineup regenerated.
+Will check all accounts and choose the account with the most open slots per stream request.\
+When Plex requests a channel scan (or you visit the info page) the config will be reloaded and the channel lineup regenerated.
