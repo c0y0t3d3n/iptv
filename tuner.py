@@ -9,7 +9,7 @@ import http.server
 import subprocess
 import logging
 
-def config():
+def config(config_file):
     global SERVER_IP, SERVER_PORT, CMD, DELAY, DIRECT, GROUPS, STREAMS, STRIP, REPLACE, FORMAT, BUFFER, LOGLEVEL, TUNER_COUNT
     ENV_VARS=['SERVER_IP','SERVER_PORT','CMD','DELAY','DIRECT','GROUPS','STREAMS','STRIP','REPLACE','FORMAT','BUFFER','LOGLEVEL','TUNER_COUNT']
 
@@ -34,8 +34,8 @@ def config():
     BUFFER=1024*1024 #buffer size for streaming
 
     #config from k=v in file
-    if len(sys.argv)>1:
-        with open(sys.argv[1]) as f:
+    try:
+        with open(config_file) as f:
             lines=f.readlines()
             for l in lines:
                 l=l.split('#')[0]
@@ -43,6 +43,8 @@ def config():
                     k,v=l.strip('\n').split('=',1)
                     if k in ENV_VARS:
                         globals()[k]=v
+    except Exception as e:
+        logging.warning(e)
     #config from env
     for e in ENV_VARS:
         globals()[e]=os.getenv(e,globals()[e])
@@ -72,9 +74,6 @@ def config():
     # example: REPLACE=' LHD' will rename 'ABC LHD' to 'ABC', removing any STREAMS named 'ABC', but only if 'ABC LHD' exists.
     REPLACE=REPLACE.split(',')
     if '' in REPLACE: REPLACE.remove('')
-
-    #return the full parsed env
-    return dict((e,globals()[e]) for e in ENV_VARS+PARSED_VARS)
 
 def xtream_request(url,user,pw,action):
     r=requests.get(url+'/player_api.php',params={'username':user,'password':pw,'action':action})
@@ -155,29 +154,34 @@ def select_acct(accts,print_info=False):
     logging.info('selected %s %s %s %s/%s', *info[-1][:-2])
     return info[-1] #account with most available connections
 
-def scan(print_info=True):
-    #load accounts from config
-    accts=[]
-    with open(sys.argv[1]) as f:
-        lines=f.readlines()
-        for l in lines:
-            if l.startswith('http'):
-                try:
-                    url,user,pw=l.strip().split()[:3]
-                    accts.append((url,user,pw))
-                except: pass
-    #fetch lineup
-    url,user,pw,active,max_conns,status,service_info=select_acct(accts,print_info=print_info)
-    return accts, fetch_lineup(url,user,pw)
+def scan(acct_file,print_info=True):
+    try:
+        logging.info('reloading %s',acct_file)
+        #load accounts from config
+        accts=[]
+        with open(acct_file) as f:
+            lines=f.readlines()
+            for l in lines:
+                if l.startswith('http'):
+                    try:
+                        url,user,pw=l.strip().split()[:3]
+                        accts.append((url,user,pw))
+                    except: pass
+        #fetch lineup
+        url,user,pw,active,max_conns,status,service_info=select_acct(accts,print_info=print_info)
+        return accts, fetch_lineup(url,user,pw)
+    except Exception as e:
+        logging.warning('no usable accounts: %s',e)
+        return None, None
 
 class HDHR_handler(http.server.BaseHTTPRequestHandler):
     # emualte a HDHomeRun
     def do_POST(self):
         if self.path.startswith('/lineup.post'):
             try:
-                config()
+                config(CONFIG_FILE)
                 global accts, lineup
-                accts, lineup = scan()
+                accts, lineup = scan(CONFIG_FILE)
                 self.send_response(200)
                 self.end_headers()
             except Exception as e:
@@ -269,18 +273,16 @@ class HDHR_handler(http.server.BaseHTTPRequestHandler):
         self.send_response(404)
         self.end_headers()     
 
-def main():     
-    env=config()
+def main(*args):
+    global CONFIG_FILE
+    CONFIG_FILE=args[0] if args else None
+    config(CONFIG_FILE)
     logging.basicConfig(level=int(LOGLEVEL), format='%(asctime)s %(levelname)s:%(message)s')
     global accts, lineup
-    try:
-        accts,lineup = scan()
-        httpd = http.server.ThreadingHTTPServer((SERVER_IP, int(SERVER_PORT)), HDHR_handler)
-        logging.info('serving at http://%s:%s' % (SERVER_IP, SERVER_PORT))
-        httpd.serve_forever()
-    except Exception as e:
-        logging.exception(e)
-        for k,v in env.items():
-            print (k,v)
-    
-main()
+    accts,lineup = scan(CONFIG_FILE)
+    httpd = http.server.ThreadingHTTPServer((SERVER_IP, int(SERVER_PORT)), HDHR_handler)
+    logging.info('serving at http://%s:%s' % (SERVER_IP, SERVER_PORT))
+    httpd.serve_forever()
+
+if __name__ == '__main__':    
+    main(*sys.argv[1:])
