@@ -8,11 +8,11 @@ from datetime import datetime
 from urllib.parse import urlparse
 import random
 
-THREADFIN='http://localhost:34400/api/'
+THREADFIN='http://10.0.0.10:34400/api/'
 
 DELAY=1
 
-ENV_VARS=['DELAY','GROUPS','STRIP','REMOVE','REPLACE','UPPER','FORMAT','THREADFIN']
+ENV_VARS=['DELAY','GROUPS','STRIP','STREAMS','REPLACE','UPPER','FORMAT','THREADFIN']
 
 UPPER=1  
 #stream format
