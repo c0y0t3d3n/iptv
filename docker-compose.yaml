@@ -1,0 +1,23 @@
+services:
+    pms:
+        image: plexinc/pms-docker:latest
+        container_name: pms
+        restart: unless-stopped
+        network_mode: host 
+        volumes:
+            - ./pms:/config
+            - ./pms:/transcode
+            - /volume1/media:/data
+        environment:
+            TZ: America/New_York
+    tuner:
+        image: nandyalu/python-ffmpeg
+        container_name: tuner
+        restart: unless-stopped
+        network_mode: host
+        volumes:
+            - ./tuner:/app
+        working_dir: /app
+        command: python -m tuner.py tuner.cfg
+        environment:
+            SERVER_IP: 10.0.0.10
