@@ -16,6 +16,6 @@ services:
         volumes:
             - ./:/app
         working_dir: /app
-        command: python -m tuner.py tuner.cfg
+        command: python -m tuner tuner.cfg
         environment:
             SERVER_IP: YOUR_IP_HERE
