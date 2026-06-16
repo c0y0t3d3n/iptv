@@ -8,7 +8,7 @@ from datetime import datetime
 from urllib.parse import urlparse
 import random
 
-THREADFIN='http://10.0.0.10:34400/api/'
+THREADFIN='http://localhost:34400/api/'
 
 DELAY=1
 
