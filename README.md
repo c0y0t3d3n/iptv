@@ -19,8 +19,8 @@ list xtream codes as\
 URL USER PASS\
 m3u will be generated using the account with the most open slots.
 
-tuner/tuner.py is like xteve/threadfin/dispatcharr but very lightweight.\
-tuner/tuner.py config_file (same format as iptv.py)
+tuner.py is like xteve/threadfin/dispatcharr but very lightweight.\
+./tuner.py config_file (same format as iptv.py)
 
 server config (can set in config or environment)\
 SERVER_IP, SERVER_PORT to set listening IP and port. Defaults to localhost:5004\
