@@ -10,9 +10,10 @@ import subprocess
 import logging
 
 def config(config_file):
-    global SERVER_IP, SERVER_PORT, CMD, DELAY, DIRECT, GROUPS, STREAMS, STRIP, REPLACE, FORMAT, BUFFER, LOGLEVEL, TUNER_COUNT
     ENV_VARS=['SERVER_IP','SERVER_PORT','CMD','DELAY','DIRECT','GROUPS','STREAMS','STRIP','REPLACE','FORMAT','BUFFER','LOGLEVEL','TUNER_COUNT']
 
+    #set defaults 
+    global SERVER_IP,SERVER_PORT,CMD,DELAY,DIRECT,GROUPS,STREAMS,STRIP,REPLACE,FORMAT,BUFFER,LOGLEVEL,TUNER_COUNT
     LOGLEVEL=logging.INFO
 
     SERVER_IP='localhost'
@@ -50,7 +51,7 @@ def config(config_file):
         globals()[e]=os.getenv(e,globals()[e])
 
     #parse config
-    global GROUPS_INCLUDE, GROUPS_EXCLUDE, GROUPS_STARTSWITH, GROUPS_ENDSWITH, STREAMS_EXCLUDE, STREAMS_INCLUDE
+    PARSED_VARS=['GROUPS_INCLUDE', 'GROUPS_EXCLUDE', 'GROUPS_STARTSWITH', 'GROUPS_ENDSWITH', 'STREAMS_EXCLUDE', 'STREAMS_INCLUDE']
     # channel groups
     GROUPS=GROUPS.split(',')
     if '' in GROUPS: GROUPS.remove('')
@@ -74,31 +75,27 @@ def config(config_file):
     REPLACE=REPLACE.split(',')
     if '' in REPLACE: REPLACE.remove('')
 
+    # add to glboals
+    for e in PARSED_VARS:
+        globals()[e]=locals()[e]
+
+    # return full config for info 
+    return dict((k,globals()[k]) for k in ENV_VARS+PARSED_VARS)
+
 def xtream_request(url,user,pw,action):
     r=requests.get(url+'/player_api.php',params={'username':user,'password':pw,'action':action})
     r.raise_for_status()
     return json.loads(r.text)
 
 # get server and account info
-def check_acct(url,user,pw,print_info=False):
+def check_acct(url,user,pw):
     try:
         info=''
         info=xtream_request(url,user,pw,'server_info')
         server_info,user_info=info['server_info'],info['user_info']
-        if print_info:
-            logging.info('%s:%s %s %s %s %s/%s %s',
-                server_info['url'],
-                server_info['port'],
-                user,pw,
-                user_info['status'],
-                user_info['active_cons'],
-                user_info['max_connections'],
-                datetime.fromtimestamp(int(user_info['exp_date'])) if user_info['exp_date'] else None
-            )
-        return url,user,pw,int(user_info['active_cons']),int(user_info['max_connections']), user_info['status'], server_info
+        return url, user, pw,int(user_info['active_cons']), int(user_info['max_connections']), user_info['status'], datetime.fromtimestamp(int(user_info['exp_date'])) if user_info['exp_date'] else None, server_info
     except Exception as e:
-        logging.warning("%s %s %s %s %s", url, user, pw, info, e)
-        return url, user, pw, None, None, '', {}
+        return url, user, pw, None, None,str(e), None, {}
 
 def fetch_lineup(url,user,pw):
     cats=dict( (e['category_id'],e['category_name']) for e in xtream_request(url,user,pw,'get_live_categories') \
@@ -142,18 +139,23 @@ def fetch_lineup(url,user,pw):
         'URL':'http://%s:%s/stream/%s'%(SERVER_IP,SERVER_PORT,s[1])
         } )for s in streams)
 
-def select_acct(accts,print_info=False):
-    info=[]
+def refresh_accts(accts):
+    acct_info=[]
     for a in accts:
-        info.append(check_acct(*a,print_info=print_info))
+        acct_info.append(check_acct(*a[:3]))
         time.sleep(int(DELAY))
-    info=[a for a in info if a[-2].lower()=='active']
-    #sort by max-active to get most free slots at end
-    info.sort(key=lambda a: a[4]-a[3])
-    logging.info('selected %s %s %s %s/%s', *info[-1][:-2])
-    return info[-1] #account with most available connections
+    return acct_info
 
-def scan(acct_file,print_info=True):
+def select_acct(accts):
+    active=[a for a in accts if a[-3].lower()=='active']
+    #sort by max-active to get most free slots at end
+    active.sort(key=lambda a: a[4]-a[3])
+    selected=active[-1]
+    logging.info('selected %s %s %s %s/%s', *selected[:-3])
+    return selected #account with most available connections
+
+def scan(acct_file):
+    global ACCTS
     try:
         logging.info('reloading %s',acct_file)
         #load accounts from config
@@ -166,21 +168,22 @@ def scan(acct_file,print_info=True):
                         url,user,pw=l.strip().split()[:3]
                         accts.append((url,user,pw))
                     except: pass
-        #fetch lineup
-        url,user,pw,active,max_conns,status,service_info=select_acct(accts,print_info=print_info)
-        return accts, fetch_lineup(url,user,pw)
+        #refresh account status
+        ACCTS=refresh_accts(accts)
+        return fetch_lineup(*select_acct(ACCTS)[:3])
     except Exception as e:
         logging.warning('no usable accounts: %s',e)
-        return None, None
+        return None
 
 class HDHR_handler(http.server.BaseHTTPRequestHandler):
     # emualte a HDHomeRun
     def do_POST(self):
+        global CONFIG_FILE,ACCTS,LINEUP
         if self.path.startswith('/lineup.post'):
+            # reload config and scan
             try:
                 config(CONFIG_FILE)
-                global accts, lineup
-                accts, lineup = scan(CONFIG_FILE)
+                LINEUP = scan(CONFIG_FILE)
                 self.send_response(200)
                 self.end_headers()
             except Exception as e:
@@ -191,11 +194,13 @@ class HDHR_handler(http.server.BaseHTTPRequestHandler):
             self.send_response(404)
             self.end_headers()
     def do_GET(self):
+        global CONFIG_FILE,ACCTS,LINEUP
         if self.path.startswith('/stream/'):
             stream_id=int(self.path.split('/stream/')[-1])
-            if stream_id in lineup:
-                url,user,pw,active,max_conns,status,server_info=select_acct(accts)
-                url = 'http://%s:%s/live/%s/%s/%s.%s' % (server_info['url'].split('//')[-1].split('/')[0], server_info['port'], user, pw, stream_id, FORMAT)
+            if stream_id in LINEUP:
+                ACCTS=refresh_accts(ACCTS)
+                a=select_acct(ACCTS)
+                url = 'http://%s:%s/live/%s/%s/%s.%s' % (a[-1]['url'].split('//')[-1].split('/')[0], a[-1]['port'], a[1], a[2], stream_id, FORMAT)
                 if int(DIRECT):
                     # send the URL to plex
                     logging.info('direct from %s', url)
@@ -266,7 +271,32 @@ class HDHR_handler(http.server.BaseHTTPRequestHandler):
             self.send_response(200)
             self.send_header('Content-type', 'application/json')
             self.end_headers()
-            self.wfile.write(json.dumps(list(lineup.values())).encode())
+            self.wfile.write(json.dumps(list(LINEUP.values())).encode())
+            return
+        elif self.path=='/':
+            html='<head></head><body><pre>'
+            try:
+                env=config(CONFIG_FILE)
+                LINEUP = scan(CONFIG_FILE)
+                for k,v in sorted(env.items()):
+                    html+='%s %s\n'%(k,v)
+                html+='\n'
+                if ACCTS:
+                    for a in ACCTS:
+                        html+='%s %s %s %s/%s %s %s'%a[:-1] + '\n'
+                html+='\n'
+                if LINEUP:
+                    for c in LINEUP.values():
+                        html+='<a href="%(URL)s">%(GuideName)s</a>\n'%c
+                self.send_response(200)
+                self.end_headers()
+            except Exception as e:
+                logging.exception(e)
+                self.send_response(500)
+                self.end_headers()
+                html+='\n\n'+str(e)
+            html+='</pre></body>'
+            self.wfile.write(html.encode())
             return
         # bad request
         self.send_response(404)
@@ -275,10 +305,11 @@ class HDHR_handler(http.server.BaseHTTPRequestHandler):
 def main(*args):
     global CONFIG_FILE
     CONFIG_FILE=args[0] if args else None
-    config(CONFIG_FILE)
+    env=config(CONFIG_FILE)
     logging.basicConfig(level=int(LOGLEVEL), format='%(asctime)s %(levelname)s:%(message)s')
-    global accts, lineup
-    accts,lineup = scan(CONFIG_FILE)
+    for k,v in env.items(): logging.info('%s %s',k,v)
+    global LINEUP
+    LINEUP = scan(CONFIG_FILE)
     httpd = http.server.ThreadingHTTPServer((SERVER_IP, int(SERVER_PORT)), HDHR_handler)
     logging.info('serving at http://%s:%s' % (SERVER_IP, SERVER_PORT))
     httpd.serve_forever()
