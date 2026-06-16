@@ -283,7 +283,7 @@ class HDHR_handler(http.server.BaseHTTPRequestHandler):
                 html+='\n'
                 if ACCTS:
                     for a in ACCTS:
-                        html+='%s %s %s %s/%s %s %s'%a[:-1] + '\n'
+                        html+='%s %s %s %s/%s %s %s\n'%a[:-1]
                 html+='\n'
                 if LINEUP:
                     for c in LINEUP.values():
