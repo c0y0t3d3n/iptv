@@ -2,13 +2,29 @@
 M3U generator and tuner proxy for Plex
 
 # usage
+## tuner.py emulates a HDHomeRun tuner
+./tuner.py config_file
+
+server config (can set in config or environment):
+
+SERVER_IP, SERVER_PORT to set listening IP and port. Defaults to localhost:5004\
+DIRECT=1 will bypass ffmpeg remuxing and redirect clients to the remote stream URL after following any redirects.
+
+Info page with stream links is at http://localhost:5004/ (or the SERVER_IP:SERVER_PORT you have it running on)
+
+When Plex requests a channel scan (or you visit the info page) the config will be reloaded and the channel lineup regenerated. When a stream request is made, it will check connection limits on each account and choose the account with the most open slots.
+
+
 ## iptv.py generates m3u playlists from xtream codes
+(requires tuner.py)
+
 ./iptv.py URL USER PASS  (to check acct)\
 ./iptv.py URL USER PASS m3u_file (check acct and write m3u)\
 ./iptv.py config_file (to check accts)\
-./iptv.py config_file m3u_file (to check accts, write m3u, reload threadfin)
+./iptv.py config_file m3u_file (to check accts, write m3u for account with most open slots)
 
-## config file entries
+
+# config file entries
 lineup filtering:
 
 GROUPS=pattern of groups to match, default is exact match, ^pattern for start match, pattern$ for end match, !pattern to exclude
@@ -21,20 +37,7 @@ REPLACE=replace any streams with the same name if a stream matching name+pattern
 
  example: REPLACE= UHD will turn 'ABC UHD' into 'ABC', removing any streams named 'ABC', but only if 'ABC UHD' exists.
 
-list xtream codes as
-
+put xtream codes in config as\
 URL USER PASS
 
-m3u will be generated using the account with the most open slots.
-
-## tuner.py emulates a HDHomeRun tuner for Plex
-./tuner.py config_file (same format as iptv.py)
-
-server config (can set in config or environment):
-
-SERVER_IP, SERVER_PORT to set listening IP and port. Defaults to localhost:5004\
-DIRECT=1 will bypass ffmpeg remuxing and redirect clients to the remote stream URL after following any redirects.
-
-Info page with stream links is at http://localhost:5004/ (or the SERVER_IP:SERVER_PORT you have it running on)
-
-When Plex requests a channel scan (or you visit the info page) the config will be reloaded and the channel lineup regenerated. When a stream request is made, it will check connection limits on each account and choose the account with the most open slots.
+(see sample tuner.cfg)
