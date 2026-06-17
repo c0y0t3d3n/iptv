@@ -32,12 +32,9 @@ m3u will be generated using the account with the most open slots.
 
 server config (can set in config or environment):
 
-SERVER_IP, SERVER_PORT to set listening IP and port. Defaults to localhost:5004
-
+SERVER_IP, SERVER_PORT to set listening IP and port. Defaults to localhost:5004\
 DIRECT=1 will bypass ffmpeg remuxing and redirect clients to the remote stream URL after following any redirects.
 
 Info page with stream links is at http://localhost:5004/ (or the SERVER_IP:SERVER_PORT you have it running on)
 
-Will check all accounts and choose the account with the most open slots per stream request.
-
-When Plex requests a channel scan (or you visit the info page) the config will be reloaded and the channel lineup regenerated.
+When Plex requests a channel scan (or you visit the info page) the config will be reloaded and the channel lineup regenerated. When a stream request is made, it will check connection limits on each account and choose the account with the most open slots.
