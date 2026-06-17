@@ -9,7 +9,8 @@ M3U generator and tuner proxy for Plex
 ./iptv.py config_file m3u_file (to check accts, write m3u, reload threadfin)
 
 ## config file entries
-lineup filtering:\
+lineup filtering:
+
 GROUPS=pattern of groups to match, default is exact match, ^pattern for start match, pattern$ for end match, !pattern to exclude
 
 STRIP=patterns to strip from stream names. default is anywhere in name, ^pattern for start match, pattern$ for end match
@@ -29,11 +30,14 @@ m3u will be generated using the account with the most open slots.
 ## tuner.py emulates a HDHomeRun tuner for Plex
 ./tuner.py config_file (same format as iptv.py)
 
-server config (can set in config or environment)\
-SERVER_IP, SERVER_PORT to set listening IP and port. Defaults to localhost:5004\
+server config (can set in config or environment):
+
+SERVER_IP, SERVER_PORT to set listening IP and port. Defaults to localhost:5004
+
 DIRECT=1 will bypass ffmpeg remuxing and redirect clients to the remote stream URL after following any redirects.
 
-Info page with stream links is at http://localhost:5004/ (or the IP:PORT you have it running on)
+Info page with stream links is at http://localhost:5004/ (or the SERVER_IP:SERVER_PORT you have it running on)
 
-Will check all accounts and choose the account with the most open slots per stream request.\
+Will check all accounts and choose the account with the most open slots per stream request.
+
 When Plex requests a channel scan (or you visit the info page) the config will be reloaded and the channel lineup regenerated.
