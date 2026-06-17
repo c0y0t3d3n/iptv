@@ -10,14 +10,20 @@ M3U generator and tuner proxy for Plex
 
 ## config file entries
 lineup filtering:\
-GROUPS=pattern of groups to match, default is exact match, ^pattern for start match, pattern$ for end match, !pattern to exclude\
-STRIP=patterns to strip from stream names. default is anywhere in name, ^pattern for start match, pattern$ for end match\
-STREAMS=patterns to include and !patterns for streams to remove, ignores GROUPS. matches anywhere in name.\
-REPLACE=replace any streams with the same name if a stream matching name+pattern exists.\
+GROUPS=pattern of groups to match, default is exact match, ^pattern for start match, pattern$ for end match, !pattern to exclude
+
+STRIP=patterns to strip from stream names. default is anywhere in name, ^pattern for start match, pattern$ for end match
+
+STREAMS=patterns to include and !patterns for streams to remove, ignores GROUPS. matches anywhere in name.
+
+REPLACE=replace any streams with the same name if a stream matching name+pattern exists.
+
  example: REPLACE= UHD will turn 'ABC UHD' into 'ABC', removing any streams named 'ABC', but only if 'ABC UHD' exists.
 
-list xtream codes as\
-URL USER PASS\
+list xtream codes as
+
+URL USER PASS
+
 m3u will be generated using the account with the most open slots.
 
 ## tuner.py emulates a HDHomeRun tuner for Plex
