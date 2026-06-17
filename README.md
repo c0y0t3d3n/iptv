@@ -8,6 +8,7 @@ M3U generator and tuner proxy for Plex
 ./iptv.py config_file (to check accts)\
 ./iptv.py config_file m3u_file (to check accts, write m3u, reload threadfin)
 
+## config file entries
 lineup filtering:\
 GROUPS=pattern of groups to match, default is exact match, ^pattern for start match, pattern$ for end match, !pattern to exclude\
 STRIP=patterns to strip from stream names. default is anywhere in name, ^pattern for start match, pattern$ for end match\
@@ -19,7 +20,7 @@ list xtream codes as\
 URL USER PASS\
 m3u will be generated using the account with the most open slots.
 
-## tuner.py is like xteve/threadfin/dispatcharr but very lightweight
+## tuner.py emulates a HDHomeRun tuner for Plex
 ./tuner.py config_file (same format as iptv.py)
 
 server config (can set in config or environment)\
