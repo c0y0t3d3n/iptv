@@ -12,7 +12,7 @@ import logging
 global PROCS
 PROCS={}
 
-def config(config_file):
+def config(config_file=None):
     ENV_VARS=['SERVER_IP','SERVER_PORT','CMD','DELAY','DIRECT','GROUPS','STREAMS','STRIP','REPLACE','FORMAT','BUFFER','LOGLEVEL','TUNER_COUNT']
 
     #set defaults 
@@ -38,17 +38,18 @@ def config(config_file):
     BUFFER=1024*1024 #buffer size for streaming
 
     #config from k=v in file
-    try:
-        with open(config_file) as f:
-            lines=f.readlines()
-            for l in lines:
-                l=l.split('#')[0]
-                if '=' in l:
-                    k,v=l.strip('\n').split('=',1)
-                    if k in ENV_VARS:
-                        globals()[k]=v
-    except Exception as e:
-        logging.warning(e)
+    if config_file:
+        try:
+            with open(config_file) as f:
+                lines=f.readlines()
+                for l in lines:
+                    l=l.split('#')[0]
+                    if '=' in l:
+                        k,v=l.strip('\n').split('=',1)
+                        if k in ENV_VARS:
+                            globals()[k]=v
+        except Exception as e:
+            logging.warning(e)
     #config from env
     for e in ENV_VARS:
         globals()[e]=os.getenv(e,globals()[e])
@@ -177,10 +178,11 @@ def scan(acct_file):
                     except: pass
         #refresh account status
         ACCTS=refresh_accts(accts)
-        return fetch_lineup(*select_acct(ACCTS)[:3])
+        selected=select_acct(ACCTS)
+        return fetch_lineup(*selected[:3]),selected,ACCTS
     except Exception as e:
         logging.warning('no usable accounts: %s',e)
-        return None
+        return None,None,accts
 
 class HDHR_handler(http.server.BaseHTTPRequestHandler):
     # emualte a HDHomeRun
@@ -190,7 +192,7 @@ class HDHR_handler(http.server.BaseHTTPRequestHandler):
             # reload config and scan
             try:
                 config(CONFIG_FILE)
-                LINEUP = scan(CONFIG_FILE)
+                LINEUP = scan(CONFIG_FILE)[0]
                 self.send_response(200)
                 self.end_headers()
             except Exception as e:
@@ -289,7 +291,7 @@ class HDHR_handler(http.server.BaseHTTPRequestHandler):
             html+='\n'
             try:
                 env=config(CONFIG_FILE)
-                LINEUP = scan(CONFIG_FILE)
+                LINEUP = scan(CONFIG_FILE)[0]
                 if ACCTS:
                     for a in ACCTS:
                         html+='%s %s %s %s/%s %s %s\n'%a[:-1]
@@ -324,7 +326,7 @@ def main(*args):
     logging.basicConfig(level=int(LOGLEVEL), format='%(asctime)s %(levelname)s:%(message)s')
     for k,v in env.items(): logging.info('%s %s',k,v)
     global LINEUP
-    LINEUP = scan(CONFIG_FILE)
+    LINEUP = scan(CONFIG_FILE)[0]
     httpd = http.server.ThreadingHTTPServer((SERVER_IP, int(SERVER_PORT)), HDHR_handler)
     logging.info('serving at http://%s:%s' % (SERVER_IP, SERVER_PORT))
     httpd.serve_forever()
