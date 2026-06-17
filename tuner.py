@@ -283,26 +283,26 @@ class HDHR_handler(http.server.BaseHTTPRequestHandler):
             self.wfile.write(json.dumps(list(LINEUP.values())).encode())
             return
         elif self.path=='/':
-            html='<head></head><body><pre>'
+            html='<html><head></head><body><pre>'
             for pid,args in PROCS.items():
-                html+='client %s %s %s\n'%(pid,*args)
+                html+='\nclient %s %s\n    %s\n'%(pid,*args)
             html+='\n'
             try:
                 env=config(CONFIG_FILE)
                 LINEUP = scan(CONFIG_FILE)
-                for k,v in sorted(env.items()):
-                    html+='%s %s\n'%(k,v)
-                html+='\n'
                 if ACCTS:
                     for a in ACCTS:
                         html+='%s %s %s %s/%s %s %s\n'%a[:-1]
                 html+='\n'
                 if LINEUP:
                     cats=set(l['GuideCategory'] for l in LINEUP.values())
-                    for g in cats:
+                    for g in sorted(cats):
                         html+=g+'\n'
                         for c in [l for l in LINEUP.values() if l['GuideCategory']==g]:
-                            html+='   <a href="%(URL)s">%(GuideName)s</a>\n'%c
+                            html+='    <a href="%(URL)s">%(GuideName)s</a>\n'%c
+                html+='\n'
+                for k,v in sorted(env.items()):
+                    html+='%s %s\n'%(k,v)
                 self.send_response(200)
                 self.end_headers()
             except Exception as e:
@@ -310,7 +310,7 @@ class HDHR_handler(http.server.BaseHTTPRequestHandler):
                 self.send_response(500)
                 self.end_headers()
                 html+='\n\n'+str(e)
-            html+='</pre></body>'
+            html+='</pre></body></html>'
             self.wfile.write(html.encode())
             return
         # bad request
