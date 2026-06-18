@@ -10,9 +10,9 @@ server config (can set in config or environment):
 SERVER_IP, SERVER_PORT to set listening IP and port. Defaults to localhost:5004\
 DIRECT=1 will bypass ffmpeg remuxing and redirect clients to the remote stream URL after following any redirects.
 
-Info page with stream links is at http://localhost:5004/ (or the SERVER_IP:SERVER_PORT you have it running on)
+Info page with stream links is at http://localhost:5004/ or the SERVER_IP:SERVER_PORT you have it running on. Here you can edit the config and hit save to write it.
 
-When Plex requests a channel scan (or you visit the info page) the config will be reloaded and the channel lineup regenerated. When a stream request is made, it will check connection limits on each account and choose the account with the most open slots.
+When Plex requests a channel scan or you visit the info page the config will be reloaded and the channel lineup fetched. When a stream request is made, it will check connection limits on each account and choose the account with the most open slots.
 
 
 ## iptv.py generates m3u playlists from xtream codes
