@@ -297,31 +297,68 @@ class HDHR_handler(http.server.BaseHTTPRequestHandler):
             self.end_headers()
             return
         elif self.path=='/':
-            html='<html><head></head><body><pre>'
+            html='''
+<html>
+    <head>
+        <style>
+            body{font-family:monospace}
+            th{text-align:left}
+        </style>
+    </head>
+    <body>
+'''
             try:
-                html+='<form method=get><textarea style="font-family:monospace" name=config cols=80 rows=25>'
+                html+='''
+        <p>
+            <form method=get>
+                <textarea name=config cols=100 rows=20>'''
                 with open(CONFIG_FILE) as f:
                     for l in f.readlines():
                         html+=l
-                html+='</textarea><input type=submit value=save></form>\n'
+                html+='''
+                </textarea><br>
+                <input type=submit value=save>
+            </form>
+            </p>
+            <p>
+                <table>
+                    <tr><th>pid</th><th>client</th><th>command</th></tr>
+'''
                 for pid,args in PROCS.items():
-                    html+='client %s %s\n    %s\n'%(pid,*args)
-                html+='\n'
+                    html+='<tr><td>%s</td><td>%s</td><td>%s</td></tr>\n'%(pid,*args)
+                html+='''
+                </table>
+            </p>
+            <p>
+                <table>
+                    <tr><th>URL</th><th>user</th><th>pass</th><th colspan=2>status</th><th>expires</th></tr>
+'''
                 env=config(CONFIG_FILE)
                 LINEUP = scan(CONFIG_FILE)[0]
                 if ACCTS:
                     for a in ACCTS:
-                        html+='%s %s %s %s/%s %s %s\n'%a[:-1]
-                html+='\n'
+                        html+='<tr><td>%s</td><td>%s</td><td>%s</td><td>%s/%s</td><td>%s</td><td>%s</td></tr>\n'%a[:-1]
+                html+='''
+                </table>
+            </p>
+            <p>
+                <table>
+'''
                 if LINEUP:
                     cats=set(l['GuideCategory'] for l in LINEUP.values())
                     for g in sorted(cats):
-                        html+=g+'\n'
-                        for c in [l for l in LINEUP.values() if l['GuideCategory']==g]:
-                            html+='    <a href="%(URL)s">%(GuideName)s</a>\n'%c
-                html+='\n'
+                        html+='<tr/><tr><th colspan=2>'+g+'</th></tr>\n'
+                        for k,l in [(k,l) for k,l in LINEUP.items() if l['GuideCategory']==g]:
+                            html+='<tr><td>'+str(k)+'</td><td><a href="%(URL)s">%(GuideName)s</a></td></tr>\n'%l
+                html+='''
+                </table>
+            </p>
+            <p>
+                <table>
+'''
                 for k,v in sorted(env.items()):
-                    html+='%s %s\n'%(k,v)
+                    html+='<tr><th>%s</th><td>%s</td></tr>\n'%(k,v)
+
                 self.send_response(200)
                 self.end_headers()
             except Exception as e:
@@ -329,7 +366,12 @@ class HDHR_handler(http.server.BaseHTTPRequestHandler):
                 self.send_response(500)
                 self.end_headers()
                 html+='\n\n'+str(e)
-            html+='</pre></body></html>'
+            html+='''
+                </table>
+            </p>
+        </body>
+    <html>
+'''
             self.wfile.write(html.encode())
             return
         # bad request
