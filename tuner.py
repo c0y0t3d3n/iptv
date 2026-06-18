@@ -8,6 +8,7 @@ import requests
 import http.server
 import subprocess
 import logging
+from urllib.parse import unquote
 
 global PROCS
 PROCS={}
@@ -202,6 +203,7 @@ class HDHR_handler(http.server.BaseHTTPRequestHandler):
         else:
             self.send_response(404)
             self.end_headers()
+
     def do_GET(self):
         global CONFIG_FILE,ACCTS,LINEUP,PROCS
         if self.path.startswith('/stream/'):
@@ -284,12 +286,27 @@ class HDHR_handler(http.server.BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(json.dumps(list(LINEUP.values())).encode())
             return
+        elif self.path.startswith('/?config='):
+            param=self.path.split('=',1)[1]
+            text=unquote(param.replace('+',' '))
+            with open(CONFIG_FILE,'w') as f:
+                f.write(text)
+                logging.info('wrote %s',CONFIG_FILE)
+            self.send_response(302)
+            self.send_header('Location','/')
+            self.end_headers()
+            return
         elif self.path=='/':
             html='<html><head></head><body><pre>'
-            for pid,args in PROCS.items():
-                html+='\nclient %s %s\n    %s\n'%(pid,*args)
-            html+='\n'
             try:
+                html+='<form method=get><textarea style="font-family:monospace" name=config cols=80 rows=25>'
+                with open(CONFIG_FILE) as f:
+                    for l in f.readlines():
+                        html+=l
+                html+='</textarea><input type=submit value=save></form>\n'
+                for pid,args in PROCS.items():
+                    html+='client %s %s\n    %s\n'%(pid,*args)
+                html+='\n'
                 env=config(CONFIG_FILE)
                 LINEUP = scan(CONFIG_FILE)[0]
                 if ACCTS:
