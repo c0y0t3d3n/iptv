@@ -311,7 +311,7 @@ class HDHR_handler(http.server.BaseHTTPRequestHandler):
                 html+='''
         <p>
             <form method=get>
-                <textarea name=config cols=100 rows=20>'''
+                <textarea style=font-family:monospace name=config cols=100 rows=20>'''
                 with open(CONFIG_FILE) as f:
                     for l in f.readlines():
                         html+=l
