@@ -85,7 +85,7 @@ def config(config_file=None):
         globals()[e]=locals()[e]
 
     # return full config for info 
-    return dict((k,globals()[k]) for k in ENV_VARS+PARSED_VARS)
+    return dict((k,globals()[k]) for k in ENV_VARS)
 
 def xtream_request(url,user,pw,action):
     r=requests.get(url+'/player_api.php',params={'username':user,'password':pw,'action':action})
