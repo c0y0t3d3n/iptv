@@ -312,11 +312,12 @@ class HDHR_handler(http.server.BaseHTTPRequestHandler):
         <p>
             <form method=get>
                 <textarea style=font-family:monospace name=config cols=100 rows=20>'''
-                with open(CONFIG_FILE) as f:
-                    for l in f.readlines():
-                        html+=l
-                html+='''
-                </textarea><br>
+                try:
+                    with open(CONFIG_FILE) as f:
+                        html+=f.read(-1)
+                except Exception as e:
+                    html+=str(e)
+                html+='''</textarea><br>
                 <input type=submit value=save>
             </form>
             </p>
