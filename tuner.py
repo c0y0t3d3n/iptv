@@ -309,20 +309,6 @@ class HDHR_handler(http.server.BaseHTTPRequestHandler):
     <body>
 '''
             try:
-                if CONFIG_FILE:
-                    html+='''
-            <p>
-                <form method=get>
-                    <textarea style=font-family:monospace name=config cols=100 rows=20>'''
-                    try:
-                        with open(CONFIG_FILE) as f:
-                            html+=f.read(-1)
-                    except Exception as e:
-                        html+=str(e)
-                    html+='''</textarea><br>
-                    <input type=submit value=save>
-                </form>
-                </p>'''
                 html+='''
             <p>
                 <table>
@@ -368,7 +354,24 @@ class HDHR_handler(http.server.BaseHTTPRequestHandler):
 '''
                 for k,v in sorted(env.items()):
                     html+='<tr><th>%s</th><td>%s</td></tr>\n'%(k,v)
-
+                html+='''
+                </table>
+            </p>
+'''
+                if CONFIG_FILE:
+                    html+='''
+            <p>
+                <form method=get>
+                    <textarea style=font-family:monospace name=config cols=100 rows=20>'''
+                    try:
+                        with open(CONFIG_FILE) as f:
+                            html+=f.read(-1)
+                    except Exception as e:
+                        html+=str(e)
+                    html+='''</textarea><br>
+                    <input type=submit value=save>
+                </form>
+                </p>'''
                 self.send_response(200)
                 self.end_headers()
             except Exception as e:
@@ -377,8 +380,6 @@ class HDHR_handler(http.server.BaseHTTPRequestHandler):
                 self.end_headers()
                 html+='\n\n'+str(e)
             html+='''
-                </table>
-            </p>
         </body>
     <html>
 '''
