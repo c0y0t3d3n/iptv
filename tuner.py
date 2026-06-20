@@ -8,17 +8,20 @@ import requests
 import http.server
 import subprocess
 import logging
+from logging.handlers import QueueHandler
+from collections import deque
 from urllib.parse import unquote
 
-global PROCS
+global PROCS, LOGQ
 PROCS={}
 
 def config(config_file=None):
     ENV_VARS=['SERVER_IP','SERVER_PORT','CMD','DELAY','DIRECT','GROUPS','STREAMS','STRIP','REPLACE','FORMAT','BUFFER','LOGLEVEL','TUNER_COUNT']
 
     #set defaults 
-    global SERVER_IP,SERVER_PORT,CMD,DELAY,DIRECT,GROUPS,STREAMS,STRIP,REPLACE,FORMAT,BUFFER,LOGLEVEL,TUNER_COUNT
+    global SERVER_IP,SERVER_PORT,CMD,DELAY,DIRECT,GROUPS,STREAMS,STRIP,REPLACE,FORMAT,BUFFER,LOGLEVEL,LOGDEPTH,TUNER_COUNT
     LOGLEVEL=logging.INFO
+    LOGDEPTH=50
 
     SERVER_IP='localhost'
     SERVER_PORT=5004
@@ -56,7 +59,7 @@ def config(config_file=None):
         globals()[e]=os.getenv(e,globals()[e])
 
     #parse config
-    PARSED_VARS=['GROUPS_INCLUDE', 'GROUPS_EXCLUDE', 'GROUPS_STARTSWITH', 'GROUPS_ENDSWITH', 'STREAMS_EXCLUDE', 'STREAMS_INCLUDE']
+    global GROUPS_INCLUDE, GROUPS_EXCLUDE, GROUPS_STARTSWITH, GROUPS_ENDSWITH, STREAMS_EXCLUDE, STREAMS_INCLUDE
     # channel groups
     GROUPS=GROUPS.split(',')
     if '' in GROUPS: GROUPS.remove('')
@@ -80,11 +83,7 @@ def config(config_file=None):
     REPLACE=REPLACE.split(',')
     if '' in REPLACE: REPLACE.remove('')
 
-    # add to glboals
-    for e in PARSED_VARS:
-        globals()[e]=locals()[e]
-
-    # return full config for info 
+    # return config for info 
     return dict((k,globals()[k]) for k in ENV_VARS)
 
 def xtream_request(url,user,pw,action):
@@ -103,6 +102,7 @@ def check_acct(url,user,pw):
         return url, user, pw, None, None,str(e), None, {}
 
 def fetch_lineup(url,user,pw):
+    global GROUPS_INCLUDE, GROUPS_STARTSWITH, GROUPS_ENDSWITH, GROUPS_EXCLUDE, STREAMS_INCLUDE, STREAMS_EXCLUDE
     cats=dict( (e['category_id'],e['category_name']) for e in xtream_request(url,user,pw,'get_live_categories') )
     filtered_cats=dict( (i,n) for i,n in cats.items() \
         if GROUPS is None or n in GROUPS_INCLUDE \
@@ -165,6 +165,7 @@ def select_acct(accts):
 
 def scan(acct_file):
     global ACCTS
+    ACCTS=None
     try:
         logging.info('reloading %s',acct_file)
         #load accounts from config
@@ -205,16 +206,16 @@ class HDHR_handler(http.server.BaseHTTPRequestHandler):
             self.end_headers()
 
     def do_GET(self):
-        global CONFIG_FILE,ACCTS,LINEUP,PROCS
+        global CONFIG_FILE,ACCTS,LINEUP,PROCS,LOGQ
         if self.path.startswith('/stream/'):
             stream_id=int(self.path.split('/stream/')[-1])
-            if stream_id in LINEUP:
+            if LINEUP and stream_id in LINEUP:
                 ACCTS=refresh_accts(ACCTS)
                 a=select_acct(ACCTS)
                 url = 'http://%s:%s/live/%s/%s/%s.%s' % (a[-1]['url'].split('//')[-1].split('/')[0], a[-1]['port'], a[1], a[2], stream_id, FORMAT)
                 if int(DIRECT):
                     # send the URL to plex
-                    logging.info('direct from %s', url)
+                    logging.info('%s requested %s', self.client_address, url)
                     res = requests.get(url, allow_redirects=False, stream=True)
                     res.close()
                     if res.status_code==200:
@@ -222,21 +223,21 @@ class HDHR_handler(http.server.BaseHTTPRequestHandler):
                     elif res.status_code in (301,302,303,307,308):
                         loc = res.headers['Location']
                     else:
-                        logging.error('status %d', res.status_code)
+                        logging.error('%s sent status %d', self.client_address, res.status_code)
                         self.send_response(res.status_code)
                         self.end_headers()
                         return
-                    logging.info('location: %s', loc)
+                    logging.info('%s sent to %s', self.client_address, loc)
                     self.send_response(302)
                     self.send_header('Location', loc)
                     self.end_headers()
                 else:
                     # remux with ffmpeg
                     args = CMD % url
-                    logging.info('starting %s', args)
+                    logging.info('%s starting %s', self.client_address, args)
                     try:
                         cmd = subprocess.Popen(args.split(), shell=False, stdout=subprocess.PIPE)
-                        logging.info('pid %s running', cmd.pid)
+                        logging.info('%s running pid %s', self.client_address, cmd.pid)
                         PROCS[cmd.pid]=(self.client_address,args)
                     except Exception as e:
                         logging.exception(e)
@@ -308,19 +309,21 @@ class HDHR_handler(http.server.BaseHTTPRequestHandler):
     <body>
 '''
             try:
+                if CONFIG_FILE:
+                    html+='''
+            <p>
+                <form method=get>
+                    <textarea style=font-family:monospace name=config cols=100 rows=20>'''
+                    try:
+                        with open(CONFIG_FILE) as f:
+                            html+=f.read(-1)
+                    except Exception as e:
+                        html+=str(e)
+                    html+='''</textarea><br>
+                    <input type=submit value=save>
+                </form>
+                </p>'''
                 html+='''
-        <p>
-            <form method=get>
-                <textarea style=font-family:monospace name=config cols=100 rows=20>'''
-                try:
-                    with open(CONFIG_FILE) as f:
-                        html+=f.read(-1)
-                except Exception as e:
-                    html+=str(e)
-                html+='''</textarea><br>
-                <input type=submit value=save>
-            </form>
-            </p>
             <p>
                 <table>
                     <tr><th>pid</th><th>client</th><th>command</th></tr>
@@ -355,6 +358,12 @@ class HDHR_handler(http.server.BaseHTTPRequestHandler):
                 </table>
             </p>
             <p>
+'''
+                for l in LOGQ:
+                    html+=l.msg+'<br>'
+                html+='''
+            </p>
+            <p>
                 <table>
 '''
                 for k,v in sorted(env.items()):
@@ -379,11 +388,19 @@ class HDHR_handler(http.server.BaseHTTPRequestHandler):
         self.send_response(404)
         self.end_headers()     
 
+class LogQ(deque):
+   '''leaky queue that drops oldest items'''
+   def put_nowait(self, item, **kwargs):
+        self.append(item)
+
 def main(*args):
-    global CONFIG_FILE
+    global CONFIG_FILE, LOGQ
     CONFIG_FILE=args[0] if args else None
     env=config(CONFIG_FILE)
-    logging.basicConfig(level=int(LOGLEVEL), format='%(asctime)s %(levelname)s:%(message)s')
+    LOGQ=LogQ(maxlen=LOGDEPTH)
+    logging.basicConfig(level=int(LOGLEVEL), 
+                        format='%(asctime)s %(levelname)s:%(message)s', 
+                        handlers=[logging.StreamHandler(),QueueHandler(LOGQ)])
     for k,v in env.items(): logging.info('%s %s',k,v)
     global LINEUP
     LINEUP = scan(CONFIG_FILE)[0]
