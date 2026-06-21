@@ -33,9 +33,8 @@ def config(config_file=None):
     DELAY=0
     DIRECT=0
     FORMAT='ts'
-    # GROUPS to these categories 
     GROUPS=''
-    STRIP='^US: ,^USA: ,^US | ,^USA | '
+    STRIP=''
     STREAMS=''
     REPLACE=''
 
