@@ -93,12 +93,12 @@ def xtream_request(url,user,pw,action):
 # get server and account info
 def check_acct(url,user,pw):
     try:
-        info=''
         info=xtream_request(url,user,pw,'server_info')
         server_info,user_info=info['server_info'],info['user_info']
         return url, user, pw,int(user_info['active_cons']), int(user_info['max_connections']), user_info['status'], datetime.fromtimestamp(int(user_info['exp_date'])) if user_info['exp_date'] else None, server_info
     except Exception as e:
-        return url, user, pw, None, None,str(e), None, {}
+        logging.warning('%s %s %s %s %s',url,user,pw,e,info)
+        return url, user, pw, None, None, str(info), None, {}
 
 def fetch_lineup(url,user,pw):
     global GROUPS_INCLUDE, GROUPS_STARTSWITH, GROUPS_ENDSWITH, GROUPS_EXCLUDE, STREAMS_INCLUDE, STREAMS_EXCLUDE
@@ -183,7 +183,7 @@ def scan(acct_file):
         return fetch_lineup(*selected[:3]),selected,ACCTS
     except Exception as e:
         logging.warning('no usable accounts: %s',e)
-        return None,None,accts
+        return None,None,ACCTS
 
 class HDHR_handler(http.server.BaseHTTPRequestHandler):
     # emualte a HDHomeRun
