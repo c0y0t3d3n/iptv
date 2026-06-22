@@ -226,17 +226,17 @@ class HDHR_handler(http.server.BaseHTTPRequestHandler):
                         self.send_response(res.status_code)
                         self.end_headers()
                         return
-                    logging.info('%s sent to %s', self.client_address, loc)
+                    logging.info('%s redirected to %s', self.client_address, loc)
                     self.send_response(302)
                     self.send_header('Location', loc)
                     self.end_headers()
                 else:
                     # remux with ffmpeg
                     args = CMD % url
-                    logging.info('%s starting %s', self.client_address, args)
+                    logging.info('%s start %s', self.client_address, args)
                     try:
                         cmd = subprocess.Popen(args.split(), shell=False, stdout=subprocess.PIPE)
-                        logging.info('%s running pid %s', self.client_address, cmd.pid)
+                        logging.info('%s pid %s', self.client_address, cmd.pid)
                         PROCS[cmd.pid]=(self.client_address,args)
                     except Exception as e:
                         logging.exception(e)
@@ -255,7 +255,7 @@ class HDHR_handler(http.server.BaseHTTPRequestHandler):
                         logging.exception(e)
                     cmd.stdout.close() # will stop cmd
                     cmd.wait()
-                    logging.info('pid %s stopped (%d)', cmd.pid, cmd.returncode)
+                    logging.info('%s pid %s stop (%d)', self.client_address, cmd.pid, cmd.returncode)
                     del PROCS[cmd.pid]
                 return
         elif self.path=='/discover.json':
@@ -401,7 +401,6 @@ def main(*args):
     logging.basicConfig(level=int(LOGLEVEL), 
                         format='%(asctime)s %(levelname)s:%(message)s', 
                         handlers=[logging.StreamHandler(),QueueHandler(LOGQ)])
-    for k,v in env.items(): logging.info('%s %s',k,v)
     global LINEUP
     LINEUP = scan(CONFIG_FILE)[0]
     httpd = http.server.ThreadingHTTPServer((SERVER_IP, int(SERVER_PORT)), HDHR_handler)
