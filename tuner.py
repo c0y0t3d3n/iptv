@@ -16,10 +16,10 @@ global PROCS, LOGQ
 PROCS={}
 
 def config(config_file=None):
-    ENV_VARS=['SERVER_IP','SERVER_PORT','CMD','DELAY','DIRECT','GROUPS','STREAMS','STRIP','REPLACE','FORMAT','BUFFER','LOGLEVEL','TUNER_COUNT']
+    ENV_VARS=['SERVER_IP','SERVER_PORT','CMD','DELAY','DIRECT','GROUPS','STREAMS','RENAME','REPLACE','FORMAT','BUFFER','LOGLEVEL','TUNER_COUNT']
 
     #set defaults 
-    global SERVER_IP,SERVER_PORT,CMD,DELAY,DIRECT,GROUPS,STREAMS,STRIP,REPLACE,FORMAT,BUFFER,LOGLEVEL,LOGDEPTH,TUNER_COUNT
+    global SERVER_IP,SERVER_PORT,CMD,DELAY,DIRECT,GROUPS,STREAMS,RENAME,REPLACE,FORMAT,BUFFER,LOGLEVEL,LOGDEPTH,TUNER_COUNT
     LOGLEVEL=logging.INFO
     LOGDEPTH=50
 
@@ -34,7 +34,7 @@ def config(config_file=None):
     DIRECT=0
     FORMAT='ts'
     GROUPS=''
-    STRIP=''
+    RENAME=''
     STREAMS=''
     REPLACE=''
 
@@ -61,26 +61,22 @@ def config(config_file=None):
     global GROUPS_INCLUDE, GROUPS_EXCLUDE, GROUPS_STARTSWITH, GROUPS_ENDSWITH, STREAMS_EXCLUDE, STREAMS_INCLUDE
     # channel groups
     GROUPS=GROUPS.split(',')
-    if '' in GROUPS: GROUPS.remove('')
-    GROUPS_INCLUDE=[f for f in GROUPS if not f.startswith('!') and not f.startswith('^') and not f.endswith('$')]
     GROUPS_EXCLUDE=[f[1:] for f in GROUPS if f.startswith('!')]
+    GROUPS=[f for f in GROUPS if f and not f.startswith('!') ]
+    GROUPS_INCLUDE=[f for f in GROUPS if not f.startswith('^') and not f.endswith('$')]
     GROUPS_STARTSWITH=[f[1:] for f in GROUPS if f.startswith('^')]
     GROUPS_ENDSWITH=[f[:-1] for f in GROUPS if f.endswith('$')]
-    if not any ([GROUPS_INCLUDE, GROUPS_EXCLUDE, GROUPS_STARTSWITH, GROUPS_ENDSWITH]):
-        GROUPS=None
     # channel names
     STREAMS=STREAMS.split(',')
-    if '' in STREAMS: STREAMS.remove('')
     STREAMS_EXCLUDE=[c[1:] for c in STREAMS if c.startswith('!')]
-    STREAMS_INCLUDE=[c for c in STREAMS if not c.startswith('!')]
+    STREAMS_INCLUDE=[c for c in STREAMS if c and not c.startswith('!')]
     # patterns to strip from channel names. ^startwith, endswith$, or anywhere if no modifier
-    STRIP=STRIP.split(',')
-    if '' in STRIP: STRIP.remove('')
-    STRIP.append(',') #plex does not like commas in channel names
+    # pattern/string will replace pattern with string
+    RENAME=[r for r in RENAME.split(',') if r]
+    RENAME.append(',') #plex does not like commas in channel names
     # replace any channels with base name if a channel matching name+pattern exists 
     # example: REPLACE=' LHD' will rename 'ABC LHD' to 'ABC', removing any STREAMS named 'ABC', but only if 'ABC LHD' exists.
-    REPLACE=REPLACE.split(',')
-    if '' in REPLACE: REPLACE.remove('')
+    REPLACE=[r for r in REPLACE.split(',') if r]
 
     # return config for info 
     return dict((k,globals()[k]) for k in ENV_VARS)
@@ -93,6 +89,7 @@ def xtream_request(url,user,pw,action):
 # get server and account info
 def check_acct(url,user,pw):
     try:
+        info=None
         info=xtream_request(url,user,pw,'server_info')
         server_info,user_info=info['server_info'],info['user_info']
         return url, user, pw,int(user_info['active_cons']), int(user_info['max_connections']), user_info['status'], datetime.fromtimestamp(int(user_info['exp_date'])) if user_info['exp_date'] else None, server_info
@@ -104,10 +101,11 @@ def fetch_lineup(url,user,pw):
     global GROUPS_INCLUDE, GROUPS_STARTSWITH, GROUPS_ENDSWITH, GROUPS_EXCLUDE, STREAMS_INCLUDE, STREAMS_EXCLUDE
     cats=dict( (e['category_id'],e['category_name']) for e in xtream_request(url,user,pw,'get_live_categories') )
     filtered_cats=dict( (i,n) for i,n in cats.items() \
-        if GROUPS is None or n in GROUPS_INCLUDE \
-        or any(n.startswith(f) for f in GROUPS_STARTSWITH) \
-        or any(n.endswith(f) for f in GROUPS_ENDSWITH) \
-        and not any (n.startswith(f) for f in GROUPS_EXCLUDE) )
+        if ( not any ([GROUPS_INCLUDE, GROUPS_STARTSWITH, GROUPS_ENDSWITH]) \
+            or n in GROUPS_INCLUDE \
+            or any(n.startswith(f) for f in GROUPS_STARTSWITH) \
+            or any(n.endswith(f) for f in GROUPS_ENDSWITH)\
+        ) and not any (f in n for f in GROUPS_EXCLUDE) )
     logging.info('groups: %s',list(filtered_cats.values()))
     streams=[s for s in xtream_request(url,user,pw,'get_live_streams') \
         if s['category_id'] in filtered_cats \
@@ -118,14 +116,17 @@ def fetch_lineup(url,user,pw):
         n=s['name'].upper()
         if  any(r in n for r in STREAMS_EXCLUDE):
             continue
-        for p in STRIP:
+        for p in RENAME:
+            r=''
+            if '/' in p:
+                p,r=p.split('/',1)
             if p.startswith('^'):
                 if n.startswith(p[1:]):
-                    n=n[len(p[1:]):]
+                    n=r+n[len(p[1:]):]
             elif p.endswith('$'):
                 if n.endswith(p[:-1]):
-                    n=n[:-len(p[:-1])]
-            else: n=n.replace(p,'')
+                    n=n[:-len(p[:-1])]+r
+            else: n=n.replace(p,r)
         out.append([n,s['stream_id'],cats[s['category_id']]])
     streams=out
     #replace channels if channel+pattern exists

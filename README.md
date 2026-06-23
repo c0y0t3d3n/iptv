@@ -27,14 +27,13 @@ When Plex requests a channel scan or you visit the info page the config will be 
 # config file entries
 lineup filtering:
 
-GROUPS=pattern of groups to match, default is exact match, ^pattern for start match, pattern$ for end match, !pattern to exclude
+GROUPS=pattern of groups to match, default is exact match, ^pattern for start match, pattern$ for end match, !pattern to exclude if match anywhere
 
-STRIP=patterns to strip from stream names. default is anywhere in name, ^pattern for start match, pattern$ for end match
+STREAMS=patterns to include and !patterns for streams to remove. overrides GROUPS and matches anywhere.
 
-STREAMS=patterns to include and !patterns for streams to remove, ignores GROUPS. matches anywhere in name.
+RENAME=patterns to strip from stream names. default is anywhere in name, ^pattern for start, pattern$ for end. pattern/string will replace pattern with string.
 
-REPLACE=replace any streams with the same name if a stream matching name+pattern exists.
-
+REPLACE=replace any streams with the same name if a stream matching name+pattern exists.\
  example: REPLACE= UHD will turn 'ABC UHD' into 'ABC', removing any streams named 'ABC', but only if 'ABC UHD' exists.
 
 put xtream codes in config as\
