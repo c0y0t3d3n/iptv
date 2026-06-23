@@ -10,7 +10,7 @@ import subprocess
 import logging
 from logging.handlers import QueueHandler
 from collections import deque
-from urllib.parse import unquote
+from urllib.parse import quote,unquote
 
 global PROCS, LOGQ
 PROCS={}
@@ -92,104 +92,123 @@ def check_acct(url,user,pw):
         info=None
         info=xtream_request(url,user,pw,'server_info')
         server_info,user_info=info['server_info'],info['user_info']
-        return url, user, pw,int(user_info['active_cons']), int(user_info['max_connections']), user_info['status'], datetime.fromtimestamp(int(user_info['exp_date'])) if user_info['exp_date'] else None, server_info
+        return user, pw,int(user_info['active_cons']), int(user_info['max_connections']), user_info['status'], datetime.fromtimestamp(int(user_info['exp_date'])) if user_info['exp_date'] else None, server_info
     except Exception as e:
         logging.warning('%s %s %s %s %s',url,user,pw,e,info)
-        return url, user, pw, None, None, str(info), None, {}
+        return user, pw, None, None, str(info), None, {}
 
-def fetch_lineup(url,user,pw):
+def refresh_accts(sources):
+    refreshed={}
+    for url,accts in sources.items():
+        for a in accts:
+            refreshed.setdefault(url,[]).append(check_acct(url,a[0],a[1]))
+            time.sleep(int(DELAY))
+    return refreshed
+
+def select_acct(sources,select_one=None):
+    selected={}
+    for url,accts in sources.items():
+        active=[a for a in accts if a[-3].lower()=='active']
+        #sort by max-active to get most free slots at end
+        active.sort(key=lambda a: a[3]-a[2])
+        selected[url]=active[-1]
+        logging.info('selected %s %s %s %s/%s', url, *selected[url][:-3])
+    if select_one: #will be list of sources for stream
+        selected=list((k,v) for k,v in selected.items() if k in select_one) #filter to stream sources
+        print(selected)
+        # return url, acct data of with most free slots
+        return sorted(selected, key=lambda s: s[1][3]-s[1][2])[-1]
+    else: 
+        return selected #account from each source with most available connections
+    
+
+def fetch_lineup(selected):
     global GROUPS_INCLUDE, GROUPS_STARTSWITH, GROUPS_ENDSWITH, GROUPS_EXCLUDE, STREAMS_INCLUDE, STREAMS_EXCLUDE
-    cats=dict( (e['category_id'],e['category_name']) for e in xtream_request(url,user,pw,'get_live_categories') )
-    filtered_cats=dict( (i,n) for i,n in cats.items() \
-        if ( not any ([GROUPS_INCLUDE, GROUPS_STARTSWITH, GROUPS_ENDSWITH]) \
-            or n in GROUPS_INCLUDE \
-            or any(n.startswith(f) for f in GROUPS_STARTSWITH) \
-            or any(n.endswith(f) for f in GROUPS_ENDSWITH)\
-        ) and not any (f in n for f in GROUPS_EXCLUDE) )
-    logging.info('groups: %s',list(filtered_cats.values()))
-    streams=[s for s in xtream_request(url,user,pw,'get_live_streams') \
-        if s['category_id'] in filtered_cats \
-        or any(c.upper() in s['name'].upper() for c in STREAMS_INCLUDE)]
-    #remove and rename streams
-    out=[]
-    for s in streams:
-        n=s['name'].upper()
-        if  any(r in n for r in STREAMS_EXCLUDE):
-            continue
-        for p in RENAME:
-            r=''
-            if '/' in p:
-                p,r=p.split('/',1)
-            if p.startswith('^'):
-                if n.startswith(p[1:]):
-                    n=r+n[len(p[1:]):]
-            elif p.endswith('$'):
-                if n.endswith(p[:-1]):
-                    n=n[:-len(p[:-1])]+r
-            else: n=n.replace(p,r)
-        out.append([n,s['stream_id'],cats[s['category_id']]])
-    streams=out
-    #replace channels if channel+pattern exists
-    for r in REPLACE:
-        replaced=set()
-        replaced.update(s[0][:-len(r)] for s in streams if s[0].endswith(r))
-        #remove replaced channels
-        streams=[s for s in streams if s[0] not in replaced]
-        #rename name+pattern to name to replace channel
+    lineup={}
+    for url,acct in selected.items():
+        user,pw=acct[:2]
+        #fetch from selected source account
+        cats=dict( (e['category_id'],e['category_name']) for e in xtream_request(url,user,pw,'get_live_categories') )
+        filtered_cats=dict( (i,n) for i,n in cats.items() \
+            if ( not any ([GROUPS_INCLUDE, GROUPS_STARTSWITH, GROUPS_ENDSWITH]) \
+                or n in GROUPS_INCLUDE \
+                or any(n.startswith(f) for f in GROUPS_STARTSWITH) \
+                or any(n.endswith(f) for f in GROUPS_ENDSWITH)\
+            ) and not any (f in n for f in GROUPS_EXCLUDE) )
+        logging.info('%s groups: %s',url,list(filtered_cats.values()))
+        streams=[s for s in xtream_request(url,user,pw,'get_live_streams') \
+            if s['category_id'] in filtered_cats \
+            or any(c.upper() in s['name'].upper() for c in STREAMS_INCLUDE)]
+        #remove and rename streams
+        out=[]
         for s in streams:
-            if s[0].endswith(r):
-                s[0]=s[0][:-len(r)]
-    # return lineup
-    logging.info('streams: %d', len(streams))
-    return dict ((int(s[1]), {
-        'GuideName':s[0], 
-        'GuideNumber':s[0], 
-        'GuideCategory':s[2],
-        'URL':'http://%s:%s/stream/%s'%(SERVER_IP,SERVER_PORT,s[1])
-        } )for s in streams)
+            n=s['name'].upper()
+            if  any(r in n for r in STREAMS_EXCLUDE):
+                continue
+            for p in RENAME:
+                r=''
+                if '/' in p:
+                    p,r=p.split('/',1)
+                if p.startswith('^'):
+                    if n.startswith(p[1:]):
+                        n=r+n[len(p[1:]):]
+                elif p.endswith('$'):
+                    if n.endswith(p[:-1]):
+                        n=n[:-len(p[:-1])]+r
+                else: n=n.replace(p,r)
+            out.append([n,s['stream_id'],cats[s['category_id']]])
+        streams=out
+        #replace channels if channel+pattern exists
+        for r in REPLACE:
+            replaced=set()
+            replaced.update(s[0][:-len(r)] for s in streams if s[0].endswith(r))
+            #remove replaced channels
+            streams=[s for s in streams if s[0] not in replaced]
+            #rename name+pattern to name to replace channel
+            for s in streams:
+                if s[0].endswith(r):
+                    s[0]=s[0][:-len(r)]
+        logging.info('%s streams: %d',url,len(streams))
+        # build lineup
+        for s in streams:
+            k=quote(s[0])
+            lineup.setdefault(k, {
+                                'GuideName':s[0], 
+                                'GuideNumber':s[0], 
+                                'GuideCategory':s[2],
+                                'sources':{},
+                                'URL':'http://%s:%s/stream/%s'%(SERVER_IP,SERVER_PORT,k)
+                            })['sources'][url]=s[1]
+    return lineup
 
-def refresh_accts(accts):
-    acct_info=[]
-    for a in accts:
-        acct_info.append(check_acct(*a[:3]))
-        time.sleep(int(DELAY))
-    return acct_info
-
-def select_acct(accts):
-    active=[a for a in accts if a[-3].lower()=='active']
-    #sort by max-active to get most free slots at end
-    active.sort(key=lambda a: a[4]-a[3])
-    selected=active[-1]
-    logging.info('selected %s %s %s %s/%s', *selected[:-3])
-    return selected #account with most available connections
-
-def scan(acct_file):
-    global ACCTS
-    ACCTS=None
+def scan(config_file):
+    global SOURCES
+    SOURCES={}
     try:
-        logging.info('reloading %s',acct_file)
+        logging.info('reloading %s',config_file)
         #load accounts from config
-        accts=[]
-        with open(acct_file) as f:
+        accts={}
+        with open(config_file) as f:
             lines=f.readlines()
             for l in lines:
                 if l.startswith('http'):
                     try:
                         url,user,pw=l.strip().split()[:3]
-                        accts.append((url,user,pw))
+                        accts.setdefault(url,[]).append((user,pw))
                     except: pass
         #refresh account status
-        ACCTS=refresh_accts(accts)
-        selected=select_acct(ACCTS)
-        return fetch_lineup(*selected[:3]),selected,ACCTS
+        SOURCES=refresh_accts(accts)
+        selected=select_acct(SOURCES)
+        return fetch_lineup(selected),selected,SOURCES
     except Exception as e:
+        logging.exception(e)
         logging.warning('no usable accounts: %s',e)
-        return None,None,ACCTS
+        return None,None,SOURCES
 
 class HDHR_handler(http.server.BaseHTTPRequestHandler):
     # emualte a HDHomeRun
     def do_POST(self):
-        global CONFIG_FILE,ACCTS,LINEUP
+        global CONFIG_FILE,SOURCES,LINEUP
         if self.path.startswith('/lineup.post'):
             # reload config and scan
             try:
@@ -206,13 +225,17 @@ class HDHR_handler(http.server.BaseHTTPRequestHandler):
             self.end_headers()
 
     def do_GET(self):
-        global CONFIG_FILE,ACCTS,LINEUP,PROCS,LOGQ
+        global CONFIG_FILE,SOURCES,LINEUP,PROCS,LOGQ
         if self.path.startswith('/stream/'):
-            stream_id=int(self.path.split('/stream/')[-1])
-            if LINEUP and stream_id in LINEUP:
-                ACCTS=refresh_accts(ACCTS)
-                a=select_acct(ACCTS)
-                url = 'http://%s:%s/live/%s/%s/%s.%s' % (a[-1]['url'].split('//')[-1].split('/')[0], a[-1]['port'], a[1], a[2], stream_id, FORMAT)
+            k=self.path.split('/stream/')[-1]
+            if LINEUP and k in LINEUP:
+                l=LINEUP[k]
+                SOURCES=refresh_accts(SOURCES)
+                source,a=select_acct(SOURCES,select_one=list(l['sources'].keys()))
+                print(source,a)
+                url = 'http://%s:%s/live/%s/%s/%s.%s' % (a[-1]['url'].split('//')[-1].split('/')[0], 
+                                                         a[-1]['port'], a[0], a[1], 
+                                                         l['sources'][source], FORMAT)
                 if int(DIRECT):
                     # send the URL to plex
                     logging.info('%s requested %s', self.client_address, url)
@@ -321,13 +344,15 @@ class HDHR_handler(http.server.BaseHTTPRequestHandler):
             </p>
             <p>
                 <table>
-                    <tr><th>URL</th><th>user</th><th>pass</th><th colspan=2>status</th><th>expires</th></tr>
+                    <tr><th>&nbsp;&nbsp;&nbsp;&nbsp;</th><th>user</th><th>pass</th><th colspan=2>status</th><th>expires</th></tr>
 '''
                 env=config(CONFIG_FILE)
                 LINEUP = scan(CONFIG_FILE)[0]
-                if ACCTS:
-                    for a in ACCTS:
-                        html+='<tr><td>%s</td><td>%s</td><td>%s</td><td>%s/%s</td><td>%s</td><td>%s</td></tr>\n'%a[:-1]
+                if SOURCES:
+                    for url,accts in SOURCES.items():
+                        html+='<tr><th colspan=6>%s</th></tr>'%url
+                        for a in accts:
+                            html+='<tr><td>&nbsp;&nbsp;&nbsp;&nbsp;</td><td>%s</td><td>%s</td><td>%s/%s</td><td>%s</td><td>%s</td></tr>\n'%a[:-1]
                 html+='''
                 </table>
             </p>
@@ -339,7 +364,7 @@ class HDHR_handler(http.server.BaseHTTPRequestHandler):
                     for g in sorted(cats):
                         html+='<tr/><tr><th colspan=2>'+g+'</th></tr>\n'
                         for k,l in [(k,l) for k,l in LINEUP.items() if l['GuideCategory']==g]:
-                            html+='<tr><td>'+str(k)+'</td><td><a href="%(URL)s">%(GuideName)s</a></td></tr>\n'%l
+                            html+='<tr><td>%s</td><td><a href="%s">%s</a></td></tr>\n'%(len(l['sources']),l['URL'],l['GuideName'])
                 html+='''
                 </table>
             </p>
