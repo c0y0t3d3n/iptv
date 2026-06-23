@@ -105,20 +105,20 @@ def refresh_accts(sources):
             time.sleep(int(DELAY))
     return refreshed
 
-def select_acct(sources,select_one=None):
+def select_acct(sources):
     selected={}
     for url,accts in sources.items():
         active=[a for a in accts if a[-3].lower()=='active']
         #sort by max-active to get most free slots at end
         active.sort(key=lambda a: a[3]-a[2])
         selected[url]=active[-1]
-        logging.info('selected %s %s %s %s/%s', url, *selected[url][:-3])
-    if select_one: #will be list of sources for stream
-        selected=list((k,v) for k,v in selected.items() if k in select_one) #filter to stream sources
-        # return url, acct data of with most free slots
-        return sorted(selected, key=lambda s: s[1][3]-s[1][2])[-1]
-    else: 
-        return selected #account from each source with most available connections
+        logging.debug('selected %s %s %s %s/%s', url, *selected[url][:-3])
+    return selected #account from each source with most available connections
+
+def select_source(selected,source_list):
+    #return url, acct data of source with most free slots
+    selected_sources=list((k,v) for k,v in selected.items() if k in source_list) #filter to stream sources
+    return sorted(selected_sources, key=lambda s: s[1][3]-s[1][2])[-1]
     
 def fetch_lineup(selected):
     global GROUPS_INCLUDE, GROUPS_STARTSWITH, GROUPS_ENDSWITH, GROUPS_EXCLUDE, STREAMS_INCLUDE, STREAMS_EXCLUDE
@@ -133,7 +133,7 @@ def fetch_lineup(selected):
                 or any(n.startswith(f) for f in GROUPS_STARTSWITH) \
                 or any(n.endswith(f) for f in GROUPS_ENDSWITH)\
             ) and not any (f in n for f in GROUPS_EXCLUDE) )
-        logging.info('%s groups: %s',url,list(filtered_cats.values()))
+        logging.debug('%s groups: %s',url,list(filtered_cats.values()))
         streams=[s for s in xtream_request(url,user,pw,'get_live_streams') \
             if s['category_id'] in filtered_cats \
             or any(c.upper() in s['name'].upper() for c in STREAMS_INCLUDE)]
@@ -166,7 +166,7 @@ def fetch_lineup(selected):
             for s in streams:
                 if s[0].endswith(r):
                     s[0]=s[0][:-len(r)]
-        logging.info('%s streams: %d',url,len(streams))
+        logging.info('%s %s streams',url,len(streams))
         # build lineup
         for s in streams:
             k=quote(s[0])
@@ -177,6 +177,7 @@ def fetch_lineup(selected):
                                 'sources':{},
                                 'URL':'http://%s:%s/stream/%s'%(SERVER_IP,SERVER_PORT,k)
                             })['sources'][url]=s[1]
+    logging.info('lineup has %s streams',len(lineup))
     return lineup
 
 def scan(config_file):
@@ -227,15 +228,16 @@ class HDHR_handler(http.server.BaseHTTPRequestHandler):
         if self.path.startswith('/stream/'):
             k=self.path.split('/stream/')[-1]
             if LINEUP and k in LINEUP:
+                logging.info('%s stream %s'%(self.client_address,k))
                 l=LINEUP[k]
                 SOURCES=refresh_accts(SOURCES)
-                source,a=select_acct(SOURCES,select_one=list(l['sources'].keys()))
+                source,a=select_source(select_acct(SOURCES),list(l['sources'].keys()))
                 url = 'http://%s:%s/live/%s/%s/%s.%s' % (a[-1]['url'].split('//')[-1].split('/')[0], 
                                                          a[-1]['port'], a[0], a[1], 
                                                          l['sources'][source], FORMAT)
                 if int(DIRECT):
                     # send the URL to plex
-                    logging.info('%s requested %s', self.client_address, url)
+                    logging.info('%s request %s', self.client_address, url)
                     res = requests.get(url, allow_redirects=False, stream=True)
                     res.close()
                     if res.status_code==200:
@@ -243,11 +245,11 @@ class HDHR_handler(http.server.BaseHTTPRequestHandler):
                     elif res.status_code in (301,302,303,307,308):
                         loc = res.headers['Location']
                     else:
-                        logging.error('%s sent status %d', self.client_address, res.status_code)
+                        logging.error('%s status %d', self.client_address, res.status_code)
                         self.send_response(res.status_code)
                         self.end_headers()
                         return
-                    logging.info('%s redirected to %s', self.client_address, loc)
+                    logging.info('%s redirect to %s', self.client_address, loc)
                     self.send_response(302)
                     self.send_header('Location', loc)
                     self.end_headers()
@@ -424,6 +426,8 @@ def main(*args):
     logging.basicConfig(level=int(LOGLEVEL), 
                         format='%(asctime)s %(levelname)s:%(message)s', 
                         handlers=[logging.StreamHandler(),QueueHandler(LOGQ)])
+    for k,v in env.items():
+        logging.debug('%s=%s',k,v)
     global LINEUP
     LINEUP = scan(CONFIG_FILE)[0]
     httpd = http.server.ThreadingHTTPServer((SERVER_IP, int(SERVER_PORT)), HDHR_handler)
