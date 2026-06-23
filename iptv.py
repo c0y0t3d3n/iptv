@@ -25,23 +25,23 @@ def generate_m3u(acct,lineup,env):
 if __name__ == '__main__':
     if len(sys.argv) < 2:
         print('''
-    usage: 
-        ./iptv.sh <URL> <user/MAC> [pass if xtream] (to check account)
-        ./iptv.sh <URL> <user/MAC> [pass if xtream] [m3u_file] (to generate m3u)
-        ./iptv.sh <account_list> (to check all acccounts)
-        ./iptv.sh <account_list> [m3u file] (to generate m3u for least used account, tell threadfin to reload)
+usage: 
+    ./iptv.sh <URL> <user/MAC> [pass if xtream] (to check account)
+    ./iptv.sh <URL> <user/MAC> [pass if xtream] [m3u_file] (to generate m3u)
+    ./iptv.sh <account_list> (to check all acccounts)
+    ./iptv.sh <account_list> [m3u file] (to generate m3u for least used account, tell threadfin to reload)
 
-    IPTV account lists should be:
+IPTV account lists should be:
 
-    GROUPS=pattern of categories to match, default is exact match, ^pattern for start match, pattern$ for end match, !pattern to exclude
-    STRIP=patterns to strip from channel names. default is anywhere in name, ^pattern for start match, pattern$ for end match
-    STREAMS=!patterns for channels to remove. matches anywhere in name.
-    REPLACE=replace any channels with the same name if a channel matching name+pattern exists.
-    example: REPLACE=' UHD' will turn 'ABC UHD' into 'ABC', removing any channels named 'ABC', but only if 'ABC UHD' exists.
+GROUPS=pattern of groups to match, default is exact match, ^pattern for start match, pattern$ for end match, !pattern to exclude if match anywhere
+STREAMS=patterns to include and !patterns for streams to remove. overrides GROUPS and matches anywhere.
+RENAME=patterns to strip from channel names. default is anywhere in name, ^pattern for start match, pattern$ for end match. pattern/string will replace pattern with string.
+REPLACE=replace any channels with the same name if a channel matching name+pattern exists.
+example: REPLACE=' UHD' will turn 'ABC UHD' into 'ABC', removing any channels named 'ABC', but only if 'ABC UHD' exists.
 
-    followed by a list of:
-    SERVER USER/MAC PASS (if xtream)
-    ''')
+followed by a list of:
+SERVER USER/MAC PASS (if xtream)
+''')
         sys.exit(0)
 
     if sys.argv[1].startswith('http'):
