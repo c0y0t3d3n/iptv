@@ -4,23 +4,23 @@ import os
 import logging
 from tuner import config, check_acct, fetch_lineup, scan
 
-def generate_m3u(acct,lineup,env):
-    url,user,pw=acct[:3]
-    server_info=acct[-1]
+def generate_m3u(selected,lineup,env):
     i=0
     with open(m3u,'w') as f:
         print('#EXTM3U',file=f)
-        for sid,s in lineup.items():
-            print('#EXTINF:-1 group-title="%s" tvg-id="%s" tvg-name="%s",%s' % (s['GuideCategory'],s['GuideNumber'],s['GuideName'],s['GuideName']), file=f)
+        for l in lineup.values():
+            print('#EXTINF:-1 group-title="%s" tvg-id="%s" tvg-name="%s",%s' % (l['GuideCategory'],l['GuideNumber'],l['GuideName'],l['GuideName']), file=f)
+            url = list(l['sources'].keys())[0]
+            sid = l['sources'][url]
+            acct = selected[url]
+            user,pw,server_info=acct[0],acct[1],acct[-1]
             print('http://%s:%s/live/%s/%s/%s.%s' % (
-            server_info['url'].replace('http://',''),
+            server_info['url'].split('//')[-1].split('/')[0],
             server_info['port'],
             user, pw, sid, env['FORMAT'] 
             ), file=f)
             i+=1
     print(m3u,i)
-    if server_info: 
-        print('xmltv %s/xmltv.php?username=%s&password=%s' % (url,user,pw))
 
 if __name__ == '__main__':
     if len(sys.argv) < 2:
@@ -53,10 +53,11 @@ SERVER USER/MAC PASS (if xtream)
         else:
             m3u=None    
         acct=check_acct(url,user,pw)
-        print('%s %s %s %s/%s %s %s'%acct[:-1])
+        print('%s %s %s %s/%s %s %s'%(url,*acct[:-1]))
         if m3u: 
-            lineup=fetch_lineup(*acct[:3])
-            generate_m3u(acct,lineup,env)
+            selected={url:acct}
+            lineup=fetch_lineup(selected)
+            generate_m3u(selected,lineup,env)
     else:
         if len(sys.argv)>2:
             m3u=sys.argv[2]
@@ -64,9 +65,10 @@ SERVER USER/MAC PASS (if xtream)
             m3u=None
         env=config(sys.argv[1])
         logging.basicConfig(level=int(env['LOGLEVEL']))
-        lineup,selected,accts=scan(sys.argv[1])
-        for acct in accts:
-            print('%s %s %s %s/%s %s %s'%acct[:-1])
+        lineup,selected,sources=scan(sys.argv[1])
+        for url,accts in sources.items():
+            for acct in accts:
+                print('%s %s %s %s/%s %s %s'%(url,*acct[:-1]))
         if m3u and lineup:
             generate_m3u(selected,lineup,env)
 
