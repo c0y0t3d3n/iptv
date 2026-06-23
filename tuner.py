@@ -115,13 +115,11 @@ def select_acct(sources,select_one=None):
         logging.info('selected %s %s %s %s/%s', url, *selected[url][:-3])
     if select_one: #will be list of sources for stream
         selected=list((k,v) for k,v in selected.items() if k in select_one) #filter to stream sources
-        print(selected)
         # return url, acct data of with most free slots
         return sorted(selected, key=lambda s: s[1][3]-s[1][2])[-1]
     else: 
         return selected #account from each source with most available connections
     
-
 def fetch_lineup(selected):
     global GROUPS_INCLUDE, GROUPS_STARTSWITH, GROUPS_ENDSWITH, GROUPS_EXCLUDE, STREAMS_INCLUDE, STREAMS_EXCLUDE
     lineup={}
@@ -232,7 +230,6 @@ class HDHR_handler(http.server.BaseHTTPRequestHandler):
                 l=LINEUP[k]
                 SOURCES=refresh_accts(SOURCES)
                 source,a=select_acct(SOURCES,select_one=list(l['sources'].keys()))
-                print(source,a)
                 url = 'http://%s:%s/live/%s/%s/%s.%s' % (a[-1]['url'].split('//')[-1].split('/')[0], 
                                                          a[-1]['port'], a[0], a[1], 
                                                          l['sources'][source], FORMAT)
