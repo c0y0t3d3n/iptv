@@ -49,8 +49,8 @@ def config(config_file=None):
                     l=l.split('#')[0]
                     if '=' in l:
                         k,v=l.strip('\n').split('=',1)
-                        if k in ENV_VARS:
-                            globals()[k]=v
+                        if k.upper() in ENV_VARS:
+                            globals()[k.upper()]=v
         except Exception as e:
             logging.warning(e)
     #config from env
@@ -60,23 +60,23 @@ def config(config_file=None):
     #parse config
     global GROUPS_INCLUDE, GROUPS_EXCLUDE, GROUPS_STARTSWITH, GROUPS_ENDSWITH, STREAMS_EXCLUDE, STREAMS_INCLUDE
     # channel groups
-    GROUPS=GROUPS.split(',')
+    GROUPS=GROUPS.upper().split(',')
     GROUPS_EXCLUDE=[f[1:] for f in GROUPS if f.startswith('!')]
     GROUPS=[f for f in GROUPS if f and not f.startswith('!') ]
     GROUPS_INCLUDE=[f for f in GROUPS if not f.startswith('^') and not f.endswith('$')]
     GROUPS_STARTSWITH=[f[1:] for f in GROUPS if f.startswith('^')]
     GROUPS_ENDSWITH=[f[:-1] for f in GROUPS if f.endswith('$')]
     # channel names
-    STREAMS=STREAMS.split(',')
+    STREAMS=STREAMS.upper().split(',')
     STREAMS_EXCLUDE=[c[1:] for c in STREAMS if c.startswith('!')]
     STREAMS_INCLUDE=[c for c in STREAMS if c and not c.startswith('!')]
     # patterns to strip from channel names. ^startwith, endswith$, or anywhere if no modifier
     # pattern/string will replace pattern with string
-    RENAME=[r for r in RENAME.split(',') if r]
+    RENAME=[r for r in RENAME.upper().split(',') if r]
     RENAME.append(',') #plex does not like commas in channel names
     # replace any channels with base name if a channel matching name+pattern exists 
     # example: REPLACE=' LHD' will rename 'ABC LHD' to 'ABC', removing any STREAMS named 'ABC', but only if 'ABC LHD' exists.
-    REPLACE=[r for r in REPLACE.split(',') if r]
+    REPLACE=[r for r in REPLACE.upper().split(',') if r]
 
     # return config for info 
     return dict((k,globals()[k]) for k in ENV_VARS)
@@ -126,22 +126,22 @@ def fetch_lineup(selected):
     for url,acct in selected.items():
         user,pw=acct[:2]
         #fetch from selected source account
-        cats=dict( (e['category_id'],e['category_name']) for e in xtream_request(url,user,pw,'get_live_categories') )
-        filtered_cats=dict( (i,n) for i,n in cats.items() \
+        groups_in=dict( (e['category_id'],e['category_name'].upper()) for e in xtream_request(url,user,pw,'get_live_categories') )
+        groups=dict( (i,n) for i,n in groups_in.items() \
             if ( not any ([GROUPS_INCLUDE, GROUPS_STARTSWITH, GROUPS_ENDSWITH]) \
                 or n in GROUPS_INCLUDE \
                 or any(n.startswith(f) for f in GROUPS_STARTSWITH) \
                 or any(n.endswith(f) for f in GROUPS_ENDSWITH)\
             ) and not any (f in n for f in GROUPS_EXCLUDE) )
-        logging.debug('%s groups: %s',url,list(filtered_cats.values()))
-        streams=[s for s in xtream_request(url,user,pw,'get_live_streams') \
-            if s['category_id'] in filtered_cats \
-            or any(c.upper() in s['name'].upper() for c in STREAMS_INCLUDE)]
+        logging.debug('%s groups: %s',url,list(groups.values()))
+        streams_in=[s for s in xtream_request(url,user,pw,'get_live_streams') \
+            if s['category_id'] in groups \
+            or any(f in s['name'].upper() for f in STREAMS_INCLUDE)]
         #remove and rename streams
-        out=[]
-        for s in streams:
+        streams=[]
+        for s in streams_in:
             n=s['name'].upper()
-            if  any(r in n for r in STREAMS_EXCLUDE):
+            if  any(f in n for f in STREAMS_EXCLUDE):
                 continue
             for p in RENAME:
                 r=''
@@ -154,8 +154,7 @@ def fetch_lineup(selected):
                     if n.endswith(p[:-1]):
                         n=n[:-len(p[:-1])]+r
                 else: n=n.replace(p,r)
-            out.append([n,s['stream_id'],cats[s['category_id']]])
-        streams=out
+            streams.append([n,s['stream_id'],groups_in[s['category_id']]])
         #replace channels if channel+pattern exists
         for r in REPLACE:
             replaced=set()
