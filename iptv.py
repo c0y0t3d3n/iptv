@@ -36,7 +36,7 @@ IPTV account lists should be:
 GROUPS=pattern of groups to match, default is exact match, ^pattern for start match, pattern$ for end match, !pattern to exclude if match anywhere
 STREAMS=patterns to include and !patterns for streams to remove. overrides GROUPS and matches anywhere.
 RENAME=patterns to strip from channel names. default is anywhere in name, ^pattern for start match, pattern$ for end match. pattern/string will replace pattern with string.
-REPLACE=replace any channels with the same name if a channel matching name+pattern exists.
+REPLACE=replace any channels with the same name if a channel matching name+pattern exists. ^pattern will replace chanels if pattern+name exists.
 example: REPLACE=' UHD' will turn 'ABC UHD' into 'ABC', removing any channels named 'ABC', but only if 'ABC UHD' exists.
 
 followed by a list of:

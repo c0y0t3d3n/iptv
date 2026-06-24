@@ -58,7 +58,7 @@ def config(config_file=None):
         globals()[e]=os.getenv(e,globals()[e])
 
     #parse config
-    global GROUPS_INCLUDE, GROUPS_EXCLUDE, GROUPS_STARTSWITH, GROUPS_ENDSWITH, STREAMS_EXCLUDE, STREAMS_INCLUDE
+    global GROUPS_INCLUDE, GROUPS_EXCLUDE, GROUPS_STARTSWITH, GROUPS_ENDSWITH, STREAMS_EXCLUDE, STREAMS_INCLUDE, REPLACE_STARTSWITH, REPLACE_ENDSWITH
     # channel groups
     GROUPS=GROUPS.upper().split(',')
     GROUPS_EXCLUDE=[f[1:] for f in GROUPS if f.startswith('!')]
@@ -76,7 +76,9 @@ def config(config_file=None):
     RENAME.append(',') #plex does not like commas in channel names
     # replace any channels with base name if a channel matching name+pattern exists 
     # example: REPLACE=' LHD' will rename 'ABC LHD' to 'ABC', removing any STREAMS named 'ABC', but only if 'ABC LHD' exists.
-    REPLACE=[r for r in REPLACE.upper().split(',') if r]
+    REPLACE=REPLACE.upper().split(',')
+    REPLACE_STARTSWITH=[r[1:] for r in REPLACE if r.startswith('^')]
+    REPLACE_ENDSWITH=[r for r in REPLACE if r and not r.startswith('^')]
 
     # return config for info 
     return dict((k,globals()[k]) for k in ENV_VARS)
@@ -155,8 +157,20 @@ def fetch_lineup(selected):
                         n=n[:-len(p[:-1])]+r
                 else: n=n.replace(p,r)
             streams.append([n,s['stream_id'],groups_in[s['category_id']]])
+        #replace channels if pattern_+channel exists
+        print (REPLACE_STARTSWITH,REPLACE_ENDSWITH)
+        for r in REPLACE_STARTSWITH:
+            replaced=set()
+            replaced.update(s[0][len(r):] for s in streams if s[0].startswith(r))
+            print(replaced)
+            #remove replaced channels
+            streams=[s for s in streams if s[0] not in replaced]
+            #rename name+pattern to name to replace channel
+            for s in streams:
+                if s[0].startswith(r):
+                    s[0]=s[0][len(r):]
         #replace channels if channel+pattern exists
-        for r in REPLACE:
+        for r in REPLACE_ENDSWITH:
             replaced=set()
             replaced.update(s[0][:-len(r)] for s in streams if s[0].endswith(r))
             #remove replaced channels

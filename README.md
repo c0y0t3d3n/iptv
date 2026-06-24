@@ -33,7 +33,7 @@ STREAMS=patterns to include and !patterns for streams to remove. overrides GROUP
 
 RENAME=patterns to strip from stream names. default is anywhere in name, ^pattern for start, pattern$ for end. pattern/string will replace pattern with string.
 
-REPLACE=replace any streams with the same name if a stream matching name+pattern exists.\
+REPLACE=replace any streams with the same name if a stream matching name+pattern exists. ^pattern will replace chanels if pattern+name exists.\
  example: REPLACE= UHD will turn 'ABC UHD' into 'ABC', removing any streams named 'ABC', but only if 'ABC UHD' exists.
 
 put xtream codes in config as\
