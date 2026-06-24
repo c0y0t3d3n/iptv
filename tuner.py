@@ -158,11 +158,9 @@ def fetch_lineup(selected):
                 else: n=n.replace(p,r)
             streams.append([n,s['stream_id'],groups_in[s['category_id']]])
         #replace channels if pattern_+channel exists
-        print (REPLACE_STARTSWITH,REPLACE_ENDSWITH)
         for r in REPLACE_STARTSWITH:
             replaced=set()
             replaced.update(s[0][len(r):] for s in streams if s[0].startswith(r))
-            print(replaced)
             #remove replaced channels
             streams=[s for s in streams if s[0] not in replaced]
             #rename name+pattern to name to replace channel
