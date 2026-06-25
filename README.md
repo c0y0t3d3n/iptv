@@ -8,7 +8,7 @@ If not all accounts have the same URL, the lineups from all providers are merged
 ## getting started
 A docker compose-file to spin up Plex and tuner containers is included, modify as needed.
 
-You’ll need a tuner.cfg with filters and xtream codes as documented in the README. A sample with working accounts is included.
+You’ll need a tuner.cfg with filters and xtream codes as documented in the README. A sample with working accounts and some generic filters is included.
 
 To add the tuner to Plex you need to manually enter the SERVER_IP:SERVER_PORT and it should appear. When you rescan channels in Plex it reloads the config and fetches lineups. Once you have the group and channel name filters set properly Plex should be able to auto map most of them to one of your local cable/satellite provider lineups. Any manual mappings you do should stick even if you change IPTV providers, as long as you adjust the filters.
 
