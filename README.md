@@ -19,7 +19,7 @@ All string matching is case-insensitive but matches any included whitespace. Use
 
 `groups=` pattern of groups to match, default is exact match, `|pattern` for start match, `pattern|` for end match, `!pattern` to exclude if match anywhere
 
-`streams=` patterns of streams to include and !patterns of streams to remove. Overrides GROUPS to allow adding or removing individual channels vs. entire categories.
+`streams=` patterns of streams to include and `!patterns` of streams to remove. Overrides GROUPS to allow adding or removing individual channels vs. entire categories.
 
 `rename=` patterns to strip from stream names. default is anywhere in name, `|pattern` for start, `pattern|` for end. `pattern=string` will replace pattern with string.
 
