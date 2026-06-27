@@ -49,8 +49,13 @@ def config(config_file=None):
                     l=l.split('#')[0]
                     if '=' in l:
                         k,v=l.strip('\n').split('=',1)
-                        if k.upper() in ENV_VARS:
-                            globals()[k.upper()]=v
+                        k=k.upper()
+                        if k.startswith('+'):
+                            k=k[1:]
+                            if k in ENV_VARS:
+                                globals()[k]+=','+v
+                        elif k in ENV_VARS:
+                            globals()[k]=v
         except Exception as e:
             logging.warning(e)
     #config from env
