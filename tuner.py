@@ -64,8 +64,8 @@ def config(config_file=None):
     GROUPS_EXCLUDE=[f[1:] for f in GROUPS if f.startswith('!')]
     GROUPS=[f for f in GROUPS if f and not f.startswith('!') ]
     GROUPS_INCLUDE=[f for f in GROUPS if not f.startswith('^') and not f.endswith('$')]
-    GROUPS_STARTSWITH=[f[1:] for f in GROUPS if f.startswith('^')]
-    GROUPS_ENDSWITH=[f[:-1] for f in GROUPS if f.endswith('$')]
+    GROUPS_STARTSWITH=[f[1:] for f in GROUPS if f.startswith('|')]
+    GROUPS_ENDSWITH=[f[:-1] for f in GROUPS if f.endswith('|')]
     # channel names
     STREAMS=STREAMS.upper().split(',')
     STREAMS_EXCLUDE=[c[1:] for c in STREAMS if c.startswith('!')]
@@ -77,8 +77,8 @@ def config(config_file=None):
     # replace any channels with base name if a channel matching name+pattern exists 
     # example: REPLACE=' LHD' will rename 'ABC LHD' to 'ABC', removing any STREAMS named 'ABC', but only if 'ABC LHD' exists.
     REPLACE=REPLACE.upper().split(',')
-    REPLACE_STARTSWITH=[r[1:] for r in REPLACE if r.startswith('^')]
-    REPLACE_ENDSWITH=[r for r in REPLACE if r and not r.startswith('^')]
+    REPLACE_STARTSWITH=[r[1:] for r in REPLACE if r.startswith('|')]
+    REPLACE_ENDSWITH=[r for r in REPLACE if r and not r.startswith('|')]
 
     # return config for info 
     return dict((k,globals()[k]) for k in ENV_VARS)
@@ -147,12 +147,12 @@ def fetch_lineup(selected):
                 continue
             for p in RENAME:
                 r=''
-                if '/' in p:
-                    p,r=p.split('/',1)
-                if p.startswith('^'):
+                if '=' in p:
+                    p,r=p.split('=',1)
+                if p.startswith('|'):
                     if n.startswith(p[1:]):
                         n=r+n[len(p[1:]):]
-                elif p.endswith('$'):
+                elif p.endswith('|'):
                     if n.endswith(p[:-1]):
                         n=n[:-len(p[:-1])]+r
                 else: n=n.replace(p,r)
