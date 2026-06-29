@@ -15,15 +15,15 @@ To add the tuner to Plex you need to manually enter the SERVER_IP:SERVER_PORT an
 Visit `http://SERVER_IP:SERVER_PORT/` for status, stream links, logs, and to edit the config. The number next to each stream link is the count of sources providing that channel.
 
 ## config file entries
-All string matching is case-insensitive but matches any included whitespace. Use this to match either partial or full words in names.
+All string matching allows multiple comma-separated values and is case-insensitive, but matches any included whitespace. Use this to match either partial or full words in names.
 
-`groups=` pattern of groups to match, default is exact match, `|pattern` for start match, `pattern|` for end match, `!pattern` to exclude if match anywhere
+`groups=` patterns of groups to match, default is exact match, `|pattern` for start match, `pattern|` for end match, `!pattern` to exclude if match anywhere
 
-`streams=` patterns of streams to include and !patterns of streams to remove. Overrides GROUPS to allow adding or removing individual channels vs. entire categories.
+`streams=` patterns of streams to include and `!pattern` of streams to remove. Overrides groups to allow adding or removing individual channels.
 
 `rename=` patterns to strip from stream names. default is anywhere in name, `|pattern` for start, `pattern|` for end. `pattern=string` will replace pattern with string.
 
-`replace=` replace any streams with the same name if a stream matching name+pattern exists. `|pattern` will replace streams if pattern+name exists. Example: `REPLACE= UHD` will turn 'ABC UHD' into 'ABC', removing any streams named 'ABC', but only if 'ABC UHD' exists. `REPLACE=|FHD: ` will do the same for 'FHD: ' at the start of the name.
+`replace=` replace any streams with the same name if a stream matching name+`pattern` exists. `|pattern` will replace streams if pattern+name exists. Example: `REPLACE= UHD` will turn 'ABC UHD' into 'ABC', removing any streams named 'ABC', but only if 'ABC UHD' exists. `REPLACE=|FHD: ` will do the same for 'FHD: ' at the start of the name.
 
 Put xtream codes in config as\
 `URL USER PASS PRI` (PRI is optional and defaults to 0. Lower number = higher priority and will be preferred unless full.)
