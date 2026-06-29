@@ -201,6 +201,7 @@ def scan(config_file):
     SOURCES={}
     try:
         logging.info('reloading %s',config_file)
+        config(CONFIG_FILE)
         #load accounts from config
         accts={}
         with open(config_file) as f:
