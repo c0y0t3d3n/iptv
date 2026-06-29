@@ -94,38 +94,45 @@ def xtream_request(url,user,pw,action):
     return json.loads(r.text)
 
 # get server and account info
-def check_acct(url,user,pw):
+def check_acct(url,user,pw,pri=0):
     try:
         info=None
         info=xtream_request(url,user,pw,'server_info')
         server_info,user_info=info['server_info'],info['user_info']
-        return user, pw,int(user_info['active_cons']), int(user_info['max_connections']), user_info['status'], datetime.fromtimestamp(int(user_info['exp_date'])) if user_info['exp_date'] else None, server_info
+        return user, pw, pri, int(user_info['active_cons']), int(user_info['max_connections']), user_info['status'], datetime.fromtimestamp(int(user_info['exp_date'])) if user_info['exp_date'] else None, server_info
     except Exception as e:
         logging.warning('%s %s %s %s %s',url,user,pw,e,info)
-        return user, pw, None, None, str(info), None, {}
+        return user, pw, pri, None, None, str(info), None, {}
 
 def refresh_accts(sources):
     refreshed={}
     for url,accts in sources.items():
         for a in accts:
-            refreshed.setdefault(url,[]).append(check_acct(url,a[0],a[1]))
+            refreshed.setdefault(url,[]).append(check_acct(url,*a[0:3]))
             time.sleep(int(DELAY))
     return refreshed
 
 def select_acct(sources):
     selected={}
     for url,accts in sources.items():
-        active=[a for a in accts if a[-3].lower()=='active']
+        #get accounts that are active and have free slots
+        active=[a for a in accts if a[5].lower()=='active' and a[4]-a[3] > 0]
         #sort by max-active to get most free slots at end
-        active.sort(key=lambda a: a[3]-a[2])
-        selected[url]=active[-1]
-        logging.debug('selected %s %s %s %s/%s', url, *selected[url][:-3])
+        if active:
+            active.sort(key=lambda a: a[4]-a[3])
+            selected[url]=active[-1]
+            logging.debug('selected %s %s %s %s %s/%s', url, *selected[url][:6])
     return selected #account from each source with most available connections
 
 def select_source(selected,source_list):
-    #return url, acct data of source with most free slots
+    #return url, acct data of source with highest priority, most free slots
     selected_sources=list((k,v) for k,v in selected.items() if k in source_list) #filter to stream sources
-    return sorted(selected_sources, key=lambda s: s[1][3]-s[1][2])[-1]
+    #sort by most free slots, then by priotiy to always prefer higher prioirty source
+    sorted_sources=sorted(
+        sorted(selected_sources, key=lambda s: s[1][4]-s[1][3]),  
+        key=lambda s: int(s[1][2]), reverse=True)
+    print (list(sorted_sources))
+    return sorted_sources[-1]
     
 def fetch_lineup(selected):
     global GROUPS_INCLUDE, GROUPS_STARTSWITH, GROUPS_ENDSWITH, GROUPS_EXCLUDE, STREAMS_INCLUDE, STREAMS_EXCLUDE
@@ -201,7 +208,6 @@ def scan(config_file):
     SOURCES={}
     try:
         logging.info('reloading %s',config_file)
-        config(CONFIG_FILE)
         #load accounts from config
         accts={}
         with open(config_file) as f:
@@ -209,8 +215,10 @@ def scan(config_file):
             for l in lines:
                 if l.startswith('http'):
                     try:
-                        url,user,pw=l.strip().split()[:3]
-                        accts.setdefault(url,[]).append((user,pw))
+                        l=l.strip().split()
+                        url,user,pw=l[:3]
+                        pri=l[3] if len(l)>3 else 0
+                        accts.setdefault(url,[]).append((user,pw,pri))
                     except: pass
         #refresh account status
         SOURCES=refresh_accts(accts)
@@ -353,10 +361,11 @@ class HDHR_handler(http.server.BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(html.encode())
             return
-        elif self.path.startswith('/refresh'):
+        elif '?refresh' in self.path:
+            config(CONFIG_FILE)
             LINEUP = scan(CONFIG_FILE)[0]   
             self.send_response(302)
-            self.send_header('Location','/'+self.path.strip('/refresh').strip('?'))
+            self.send_header('Location',self.path.split('?')[0])
             self.end_headers()
             return
         elif '?config' in self.path:
@@ -367,7 +376,7 @@ class HDHR_handler(http.server.BaseHTTPRequestHandler):
                 f.write(text)
                 logging.info('wrote %s',CONFIG_FILE)
             self.send_response(302)
-            self.send_header('Location','/refresh?'+self.path.split('?')[0][1:])
+            self.send_header('Location',self.path.split('?')[0]+'?refresh')
             self.end_headers()
             return
         elif self.path=='/':
@@ -382,13 +391,13 @@ class HDHR_handler(http.server.BaseHTTPRequestHandler):
                 </p>'''
                 env=config(CONFIG_FILE)
                 if SOURCES:
-                    html+='''<p><table><tr><th><a href='/refresh'>refresh</a>&nbsp;&nbsp;&nbsp;</th><th>user</th><th>pass</th><th colspan=2>status</th><th>expires</th></tr>'''
+                    html+='''<p><table><tr><th></th><th>user</th><th>pass</th><th>priority</th><th colspan=2>status</th><th>expires</th></tr>'''
                     for url,accts in SOURCES.items():
-                        html+='<tr><th colspan=5>%s</th><td>(%s streams)</td></tr>'%(url,
+                        html+='<tr><th colspan=7>%s</th><td>(%s streams)</td></tr>'%(url,
                         len(list(s for s in LINEUP.values() if url in s['sources'])))
                         for a in accts:
-                            html+='<tr><td></td><td>%s</td><td>%s</td><td>%s/%s</td><td>%s</td><td>%s</td></tr>\n'%a[:-1]
-                    html+='''</table></p>'''
+                            html+='<tr><td></td><td>%s</td><td>%s</td><td>%s</td><td>%s/%s</td><td>%s</td><td>%s</td></tr>\n'%a[:-1]
+                    html+='''<tr><td><form method=get><input type=submit name=refresh value=refresh></form></td></tr></table></p>'''
                 html+='''<p><table>'''
                 for k,v in sorted(env.items()):
                     html+='<tr><th>%s</th><td>%s</td></tr>\n'%(k,v)
@@ -419,7 +428,7 @@ class HDHR_handler(http.server.BaseHTTPRequestHandler):
         <p><table><tr>
             <th><a href='/'>status</a>&nbsp;&nbsp;&nbsp;</th>
             <th><a href='/log'>log</a>&nbsp;&nbsp;&nbsp;</th>
-            <th><a href='/lineup'>lineup</a>&nbsp;</th<<td>(%s streams)</td>
+            <th><a href='/lineup'>lineup</a>&nbsp;</th><td>(%s streams)</td>
         </tr></table></p>''' % len(list(LINEUP))
         return html
 

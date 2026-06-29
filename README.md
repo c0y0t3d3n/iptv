@@ -19,14 +19,14 @@ All string matching is case-insensitive but matches any included whitespace. Use
 
 `groups=` pattern of groups to match, default is exact match, `|pattern` for start match, `pattern|` for end match, `!pattern` to exclude if match anywhere
 
-`streams=` patterns of streams to include and `!patterns` of streams to remove. Overrides GROUPS to allow adding or removing individual channels vs. entire categories.
+`streams=` patterns of streams to include and !patterns of streams to remove. Overrides GROUPS to allow adding or removing individual channels vs. entire categories.
 
 `rename=` patterns to strip from stream names. default is anywhere in name, `|pattern` for start, `pattern|` for end. `pattern=string` will replace pattern with string.
 
 `replace=` replace any streams with the same name if a stream matching name+pattern exists. `|pattern` will replace streams if pattern+name exists. Example: `REPLACE= UHD` will turn 'ABC UHD' into 'ABC', removing any streams named 'ABC', but only if 'ABC UHD' exists. `REPLACE=|FHD: ` will do the same for 'FHD: ' at the start of the name.
 
 Put xtream codes in config as\
-`URL USER PASS`
+`URL USER PASS PRI` (PRI is optional and defaults to 0. Lower number = higher priority and will be preferred unless full.)
 
 # usage
 ## tuner.py emulates a HDHomeRun tuner
