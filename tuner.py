@@ -131,7 +131,6 @@ def select_source(selected,source_list):
     sorted_sources=sorted(
         sorted(selected_sources, key=lambda s: s[1][4]-s[1][3]),  
         key=lambda s: int(s[1][2]), reverse=True)
-    print (list(sorted_sources))
     return sorted_sources[-1]
     
 def fetch_lineup(selected):
