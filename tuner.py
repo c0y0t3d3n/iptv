@@ -325,32 +325,16 @@ class HDHR_handler(http.server.BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(json.dumps(list(LINEUP.values())).encode())
             return
-        elif self.path.startswith('/?config='):
-            param=self.path.split('=',1)[1]
-            text=unquote(param.replace('+',' '))
-            with open(CONFIG_FILE,'w') as f:
-                f.write(text)
-                logging.info('wrote %s',CONFIG_FILE)
-            self.send_response(302)
-            self.send_header('Location','/refresh')
-            self.end_headers()
-            return
         elif self.path=='/lineup':
             html=self.html_start()
-            html+='''
-            <p>
-                <table>
-'''
+            html+='''<p><table>'''
             if LINEUP:
                 cats=set(l['GuideCategory'] for l in LINEUP.values())
                 for g in sorted(cats):
                     html+='<tr/><tr><th colspan=2>'+g+'</th></tr>\n'
                     for k,l in [(k,l) for k,l in LINEUP.items() if l['GuideCategory']==g]:
                         html+='<tr><td>%s</td><td><a href="%s">%s</a></td></tr>\n'%(len(l['sources']),l['URL'],l['GuideName'])
-            html+='''
-            </table>
-        </p>
-'''
+            html+='''</table></p>'''
             html+=self.html_end()
             self.send_response(200)
             self.end_headers()
@@ -358,36 +342,38 @@ class HDHR_handler(http.server.BaseHTTPRequestHandler):
             return
         elif self.path=='/log':
             html=self.html_start()
-            html+='''
-                </table>
-            </p>
-            <p>
-'''
+            html+='''</table></p><p>'''
             for l in LOGQ:
                 html+=l.msg+'<br>'
             html+='''
-            </p>
-'''
+            </p>'''
             html+=self.html_end()
             self.send_response(200)
             self.end_headers()
             self.wfile.write(html.encode())
             return
-        elif self.path=='/refresh':
+        elif self.path.startswith('/refresh'):
             LINEUP = scan(CONFIG_FILE)[0]   
             self.send_response(302)
-            self.send_header('Location','/')
+            self.send_header('Location','/'+self.path.strip('/refresh').strip('?'))
+            self.end_headers()
+            return
+        elif '?config' in self.path:
+            LOGQ.clear()
+            param=self.path.split('=',1)[1]
+            text=unquote(param.replace('+',' '))
+            with open(CONFIG_FILE,'w') as f:
+                f.write(text)
+                logging.info('wrote %s',CONFIG_FILE)
+            self.send_response(302)
+            self.send_header('Location','/refresh?'+self.path.split('?')[0][1:])
             self.end_headers()
             return
         elif self.path=='/':
             html=self.html_start()
             try:
                 if PROCS:
-                    html+='''
-                <p>
-                    <table>
-                        <tr><th>pid</th><th>client</th><th>command</th></tr>
-    '''
+                    html+='''<p><table><tr><th>pid</th><th>client</th><th>command</th></tr>'''
                     for pid,args in PROCS.items():
                         html+='<tr><td>%s</td><td>%s</td><td>%s</td></tr>\n'%(pid,*args)
                     html+='''
@@ -395,42 +381,17 @@ class HDHR_handler(http.server.BaseHTTPRequestHandler):
                 </p>'''
                 env=config(CONFIG_FILE)
                 if SOURCES:
-                    html+='''            
-            <p>
-                <table>
-                    <tr><th><a href='/refresh'>refresh</a>&nbsp;&nbsp;&nbsp;</th>
-                    <th>user</th><th>pass</th><th colspan=2>status</th><th>expires</th></tr>
-'''
+                    html+='''<p><table><tr><th><a href='/refresh'>refresh</a>&nbsp;&nbsp;&nbsp;</th><th>user</th><th>pass</th><th colspan=2>status</th><th>expires</th></tr>'''
                     for url,accts in SOURCES.items():
-                        html+='<tr><th colspan=6>%s</th></tr>'%url
+                        html+='<tr><th colspan=5>%s</th><td>(%s streams)</td></tr>'%(url,
+                        len(list(s for s in LINEUP.values() if url in s['sources'])))
                         for a in accts:
                             html+='<tr><td></td><td>%s</td><td>%s</td><td>%s/%s</td><td>%s</td><td>%s</td></tr>\n'%a[:-1]
-                    html+='''
-                </table>
-            </p>
-            <p>
-                <table>
-'''
+                    html+='''</table></p>'''
+                html+='''<p><table>'''
                 for k,v in sorted(env.items()):
                     html+='<tr><th>%s</th><td>%s</td></tr>\n'%(k,v)
-                html+='''
-                </table>
-            </p>
-'''
-                if CONFIG_FILE:
-                    html+='''
-            <p>
-                <form method=get>
-                    <textarea style=font-family:monospace name=config cols=100 rows=20>'''
-                    try:
-                        with open(CONFIG_FILE) as f:
-                            html+=f.read(-1)
-                    except Exception as e:
-                        html+=str(e)
-                    html+='''</textarea><br>
-                    <input type=submit value="save config">
-                </form>
-                </p>'''
+                html+='''</table></p>'''
                 self.send_response(200)
                 self.end_headers()
             except Exception as e:
@@ -447,30 +408,34 @@ class HDHR_handler(http.server.BaseHTTPRequestHandler):
 
     def html_start(self):
         html='''
-<html>
-    <head>
+<html><head>
         <style>
             body{font-family:monospace}
             th{text-align:left}
         </style>
-    </head>
-    <body>
-            <p>
-                <table>
-                    <tr>
-                    <th><a href='/'>status</a>&nbsp;&nbsp;&nbsp;</th>
-                    <th><a href='/lineup'>lineup</a>&nbsp;&nbsp;&nbsp;</th>
-                    <th><a href='/log'>log</a>&nbsp;&nbsp;&nbsp;</th>
-                    </tr>
-                </table>
-            </p>'''
+</head>
+<body>
+        <p><table><tr>
+            <th><a href='/'>status</a>&nbsp;&nbsp;&nbsp;</th>
+            <th><a href='/log'>log</a>&nbsp;&nbsp;&nbsp;</th>
+            <th><a href='/lineup'>lineup</a>&nbsp;</th<<td>(%s streams)</td>
+        </tr></table></p>''' % len(list(LINEUP))
         return html
 
     def html_end(self):
-        html='''
-        </body>
-    <html>
-'''
+        if CONFIG_FILE:
+            html='''
+            <p>&nbsp;</p><p><form method=get>
+            <textarea style=font-family:monospace name=config cols=100 rows=20>'''
+            try:
+                with open(CONFIG_FILE) as f:
+                    html+=f.read(-1)
+            except Exception as e:
+                html+=str(e)
+            html+='''</textarea><br>
+            <input type=submit value="save config">
+            </form></p>'''
+        html+='''</body><html>'''
         return html
         
 
