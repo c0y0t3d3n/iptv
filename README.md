@@ -35,7 +35,7 @@ Put xtream codes in config as\
 server config (can set in config or environment):
 
 `SERVER_IP` and `SERVER_PORT` to set listening IP and port. Defaults to localhost:5004\
-`DIRECT=1` will bypass ffmpeg remuxing and redirect clients to the remote stream URL after following any redirects. This avoids having to spawn ffmpeg subprocesses, but if that stream fails Plex will try to reconnect to the same stream vs. making a new request.
+`DIRECT=1` will bypass ffmpeg remuxing and redirect clients to the stream URL.
 
 ## iptv.py generates m3u playlists from xtream codes
 `./iptv.py URL USER PASS`  (to check acct)\

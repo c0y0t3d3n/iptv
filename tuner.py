@@ -261,21 +261,9 @@ class HDHR_handler(http.server.BaseHTTPRequestHandler):
                                                          l['sources'][source], FORMAT)
                 if int(DIRECT):
                     # send the URL to plex
-                    logging.info('%s request %s', self.client_address, url)
-                    res = requests.get(url, allow_redirects=False, stream=True)
-                    res.close()
-                    if res.status_code==200:
-                        loc = res.url
-                    elif res.status_code in (301,302,303,307,308):
-                        loc = res.headers['Location']
-                    else:
-                        logging.error('%s status %d', self.client_address, res.status_code)
-                        self.send_response(res.status_code)
-                        self.end_headers()
-                        return
-                    logging.info('%s redirect to %s', self.client_address, loc)
+                    logging.info('%s redirect to %s', self.client_address, url)
                     self.send_response(302)
-                    self.send_header('Location', loc)
+                    self.send_header('Location', url)
                     self.end_headers()
                 else:
                     # remux with ffmpeg
