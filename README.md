@@ -35,7 +35,10 @@ Put xtream codes in config as\
 server config (can set in config or environment):
 
 `SERVER_IP` and `SERVER_PORT` to set listening IP and port. Defaults to localhost:5004\
-`DIRECT=1` will bypass ffmpeg remuxing and redirect clients to the stream URL.
+`DIRECT=1` will bypass ffmpeg remuxing and redirect clients to the stream URL.\
+`CMD=` will override the command used to fetch and remux the stream. Whatever you use should accept a stream URL as `%s` and pipe to STDOUT.
+
+Plex currently has an issue with streams containing AAC audio (HE-AAC in particular) so you may want to try `CMD=ffmpeg -hide_banner -loglevel error -user_agent tuner -i %s -c copy -c:a ac3 -copyts -f mpegts pipe:1` to transcode all audio to AC3.
 
 ## iptv.py generates m3u playlists from xtream codes
 `./iptv.py URL USER PASS`  (to check acct)\
