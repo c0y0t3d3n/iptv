@@ -50,8 +50,9 @@ def config(config_file=None):
                     if '=' in l:
                         k,v=l.strip('\n').split('=',1)
                         k=k.upper()
-                        if k.startswith('+'):
-                            k=k[1:]
+                        # if key+=value extend value list else set key to value
+                        if k.endswith('+'):
+                            k=k[:-1]
                             if k in ENV_VARS:
                                 globals()[k]+=','+v
                         elif k in ENV_VARS:
