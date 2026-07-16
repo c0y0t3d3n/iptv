@@ -25,8 +25,11 @@ All string matching allows multiple comma-separated values and is case-insensiti
 
 `replace=` replace any streams with the same name if a stream matching name+`pattern` exists. `|pattern` will replace streams if pattern+name exists. Example: `REPLACE= UHD` will turn 'ABC UHD' into 'ABC', removing any streams named 'ABC', but only if 'ABC UHD' exists. `REPLACE=|FHD: ` will do the same for 'FHD: ' at the start of the name.
 
+for all string matching, `key+=...` will extend existing list of values for the key.
+
 Put xtream codes in config as\
-`URL USER PASS PRI` (PRI is optional and defaults to 0. Lower number = higher priority and will be preferred unless full.)
+`URL USER PASS PRI`\
+(PRI is optional and defaults to 0. Lower number = higher priority and will be preferred unless full.)
 
 # usage
 ## tuner.py emulates a HDHomeRun tuner
@@ -38,7 +41,9 @@ server config (can set in config or environment):
 `DIRECT=1` will bypass ffmpeg remuxing and redirect clients to the stream URL.\
 `CMD=` will override the command used to fetch and remux the stream. Whatever you use should accept a stream URL as `%s` and pipe to STDOUT.
 
-Plex currently has an issue with streams containing AAC audio (HE-AAC in particular) so you may want to try `CMD=ffmpeg -hide_banner -loglevel error -user_agent tuner -i %s -c copy -c:a ac3 -copyts -f mpegts pipe:1` to transcode all audio to AC3.
+Plex currently has an issue with streams containing AAC audio (HE-AAC in particular) so you may want to try\
+`CMD=ffmpeg -hide_banner -loglevel error -user_agent tuner -i %s -c copy -c:a ac3 -copyts -f mpegts pipe:1`\
+to transcode all audio to AC3.
 
 ## iptv.py generates m3u playlists from xtream codes
 `./iptv.py URL USER PASS`  (to check acct)\
