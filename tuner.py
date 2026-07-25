@@ -3,6 +3,7 @@ import time
 import json
 import sys
 import os
+import re
 from datetime import datetime
 import requests
 import http.server
@@ -15,11 +16,17 @@ from urllib.parse import quote,unquote
 global PROCS, LOGQ
 PROCS={}
 
+def upper(s):
+    if int(UPPER): 
+        return s.upper()
+    else: 
+        return s
+
 def config(config_file=None):
-    ENV_VARS=['SERVER_IP','SERVER_PORT','CMD','DELAY','DIRECT','GROUPS','STREAMS','RENAME','REPLACE','FORMAT','BUFFER','LOGLEVEL','TUNER_COUNT']
+    ENV_VARS=['SERVER_IP','SERVER_PORT','CMD','DELAY','DIRECT','GROUPS','STREAMS','RENAME','REPLACE','FORMAT','BUFFER','LOGLEVEL','TUNER_COUNT','UPPER']
 
     #set defaults 
-    global SERVER_IP,SERVER_PORT,CMD,DELAY,DIRECT,GROUPS,STREAMS,RENAME,REPLACE,FORMAT,BUFFER,LOGLEVEL,LOGDEPTH,TUNER_COUNT
+    global SERVER_IP,SERVER_PORT,CMD,DELAY,DIRECT,GROUPS,STREAMS,RENAME,REPLACE,FORMAT,BUFFER,LOGLEVEL,LOGDEPTH,TUNER_COUNT,UPPER
     LOGLEVEL=logging.INFO
     LOGDEPTH=100
 
@@ -27,6 +34,7 @@ def config(config_file=None):
     SERVER_PORT=5004
 
     TUNER_COUNT=4
+    UPPER=1
 
     CMD='ffmpeg -hide_banner -loglevel error -user_agent tuner -i %s -c copy -copyts -f mpegts pipe:1'
 
@@ -64,27 +72,22 @@ def config(config_file=None):
         globals()[e]=os.getenv(e,globals()[e])
 
     #parse config
-    global GROUPS_INCLUDE, GROUPS_EXCLUDE, GROUPS_STARTSWITH, GROUPS_ENDSWITH, STREAMS_EXCLUDE, STREAMS_INCLUDE, REPLACE_STARTSWITH, REPLACE_ENDSWITH
-    # channel groups
-    GROUPS=GROUPS.upper().split(',')
+    global GROUPS_EXCLUDE, STREAMS_EXCLUDE
+    # channel group regexes, !pattern to exclude
+    GROUPS=upper(GROUPS).split(',')
     GROUPS_EXCLUDE=[f[1:] for f in GROUPS if f.startswith('!')]
     GROUPS=[f for f in GROUPS if f and not f.startswith('!') ]
-    GROUPS_INCLUDE=[f for f in GROUPS if not f.startswith('^') and not f.endswith('$')]
-    GROUPS_STARTSWITH=[f[1:] for f in GROUPS if f.startswith('|')]
-    GROUPS_ENDSWITH=[f[:-1] for f in GROUPS if f.endswith('|')]
-    # channel names
-    STREAMS=STREAMS.upper().split(',')
+    # channel name regexs to include or exclude if !pattern regardless of group
+    STREAMS=upper(STREAMS).split(',')
     STREAMS_EXCLUDE=[c[1:] for c in STREAMS if c.startswith('!')]
-    STREAMS_INCLUDE=[c for c in STREAMS if c and not c.startswith('!')]
-    # patterns to strip from channel names. ^startwith, endswith$, or anywhere if no modifier
-    # pattern/string will replace pattern with string
-    RENAME=[r for r in RENAME.upper().split(',') if r]
+    STREAMS=[c for c in STREAMS if c and not c.startswith('!')]
+    # regex patterns to strip or replace in channel names. ^startwith, endswith$, or anywhere if no modifier
+    # pattern=string will replace pattern with string
+    RENAME=[r for r in upper(RENAME).split(',') if r]
     RENAME.append(',') #plex does not like commas in channel names
-    # replace any channels with base name if a channel matching name+pattern exists 
-    # example: REPLACE=' LHD' will rename 'ABC LHD' to 'ABC', removing any STREAMS named 'ABC', but only if 'ABC LHD' exists.
-    REPLACE=REPLACE.upper().split(',')
-    REPLACE_STARTSWITH=[r[1:] for r in REPLACE if r.startswith('|')]
-    REPLACE_ENDSWITH=[r for r in REPLACE if r and not r.startswith('|')]
+    # replace any channels with base name if a channel matching regex exists 
+    # example: REPLACE=' LHD$' will rename 'ABC LHD' to 'ABC', removing any STREAMS named 'ABC', but only if 'ABC LHD' exists.
+    REPLACE=upper(REPLACE).split(',')
 
     # return config for info 
     return dict((k,globals()[k]) for k in ENV_VARS)
@@ -122,7 +125,7 @@ def select_acct(sources):
         if active:
             active.sort(key=lambda a: a[4]-a[3])
             selected[url]=active[-1]
-            logging.debug('selected %s %s %s %s %s/%s', url, *selected[url][:6])
+            logging.debug('selected %s %s %s %s %s/%s %s', url, *selected[url][:6])
     return selected #account from each source with most available connections
 
 def select_source(selected,source_list):
@@ -140,55 +143,34 @@ def fetch_lineup(selected):
     for url,acct in selected.items():
         user,pw=acct[:2]
         #fetch from selected source account
-        groups_in=dict( (e['category_id'],e['category_name'].upper()) for e in xtream_request(url,user,pw,'get_live_categories') )
+        groups_in=dict( (e['category_id'],upper(e['category_name'])) for e in xtream_request(url,user,pw,'get_live_categories') )
         groups=dict( (i,n) for i,n in groups_in.items() \
-            if ( not any ([GROUPS_INCLUDE, GROUPS_STARTSWITH, GROUPS_ENDSWITH]) \
-                or n in GROUPS_INCLUDE \
-                or any(n.startswith(f) for f in GROUPS_STARTSWITH) \
-                or any(n.endswith(f) for f in GROUPS_ENDSWITH)\
-            ) and not any (f in n for f in GROUPS_EXCLUDE) )
+            if (not GROUPS) or any(re.search(p,n) for p in GROUPS) and not any(re.search(p,n) for p in GROUPS_EXCLUDE) )
         logging.debug('%s groups: %s',url,list(groups.values()))
-        streams_in=[s for s in xtream_request(url,user,pw,'get_live_streams') \
-            if s['category_id'] in groups \
-            or any(f in s['name'].upper() for f in STREAMS_INCLUDE)]
+        streams_in=[s for s in xtream_request(url,user,pw,'get_live_streams') if s['category_id'] in groups \
+            or any(re.search(p,upper(s['name'])) for p in STREAMS) ]
         #remove and rename streams
         streams=[]
         for s in streams_in:
-            n=s['name'].upper()
-            if  any(f in n for f in STREAMS_EXCLUDE):
+            n=upper(s['name'])
+            if  any(re.search(p,n) for p in STREAMS_EXCLUDE):
                 continue
             for p in RENAME:
-                r=''
                 if '=' in p:
                     p,r=p.split('=',1)
-                if p.startswith('|'):
-                    if n.startswith(p[1:]):
-                        n=r+n[len(p[1:]):]
-                elif p.endswith('|'):
-                    if n.endswith(p[:-1]):
-                        n=n[:-len(p[:-1])]+r
-                else: n=n.replace(p,r)
+                else:
+                    r=''
+                n=re.sub(p,r,n)
             streams.append([n,s['stream_id'],groups_in[s['category_id']]])
         #replace channels if pattern_+channel exists
-        for r in REPLACE_STARTSWITH:
+        for p in REPLACE:
             replaced=set()
-            replaced.update(s[0][len(r):] for s in streams if s[0].startswith(r))
+            replaced.update(re.sub(p,'',s[0]) for s in streams if re.search(p,s[0]))
             #remove replaced channels
             streams=[s for s in streams if s[0] not in replaced]
             #rename name+pattern to name to replace channel
             for s in streams:
-                if s[0].startswith(r):
-                    s[0]=s[0][len(r):]
-        #replace channels if channel+pattern exists
-        for r in REPLACE_ENDSWITH:
-            replaced=set()
-            replaced.update(s[0][:-len(r)] for s in streams if s[0].endswith(r))
-            #remove replaced channels
-            streams=[s for s in streams if s[0] not in replaced]
-            #rename name+pattern to name to replace channel
-            for s in streams:
-                if s[0].endswith(r):
-                    s[0]=s[0][:-len(r)]
+                s[0]=re.sub(p,'',s[0])
         logging.info('%s %s streams',url,len(streams))
         # build lineup
         for s in streams:
@@ -382,7 +364,7 @@ class HDHR_handler(http.server.BaseHTTPRequestHandler):
                     html+='''<p><table><tr><th></th><th>user</th><th>pass</th><th>priority</th><th colspan=2>status</th><th>expires</th></tr>'''
                     for url,accts in SOURCES.items():
                         html+='<tr><th colspan=7>%s</th><td>(%s streams)</td></tr>'%(url,
-                        len(list(s for s in LINEUP.values() if url in s['sources'])))
+                        len(list(s for s in LINEUP.values() if url in s['sources'])) if LINEUP else '0')
                         for a in accts:
                             html+='<tr><td></td><td>%s</td><td>%s</td><td>%s</td><td>%s/%s</td><td>%s</td><td>%s</td></tr>\n'%a[:-1]
                     html+='''<tr><td><form method=get><input type=submit name=refresh value=refresh></form></td></tr></table></p>'''
@@ -417,7 +399,7 @@ class HDHR_handler(http.server.BaseHTTPRequestHandler):
             <th><a href='/'>status</a>&nbsp;&nbsp;&nbsp;</th>
             <th><a href='/log'>log</a>&nbsp;&nbsp;&nbsp;</th>
             <th><a href='/lineup'>lineup</a>&nbsp;</th><td>(%s streams)</td>
-        </tr></table></p>''' % len(list(LINEUP))
+        </tr></table></p>''' % (len(list(LINEUP)) if LINEUP else '0')
         return html
 
     def html_end(self):

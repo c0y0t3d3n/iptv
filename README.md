@@ -15,19 +15,22 @@ To add the tuner to Plex you need to manually enter the SERVER_IP:SERVER_PORT an
 Visit `http://SERVER_IP:SERVER_PORT/` for status, stream links, logs, and to edit the config. The number next to each stream link is the count of sources providing that channel.
 
 ## config file entries
-All string matching allows multiple comma-separated values and is case-insensitive, but matches any included whitespace. Use this to match either partial or full words in names.
+Keys are case-insensitive. `key+=...` will extend existing list of values for the key.
 
-`groups=` patterns of groups to match, default is exact match, `|pattern` for start match, `pattern|` for end match, `!pattern` to exclude if match anywhere
+`GROUPS=` regex patterns of groups to match, `!pattern` to exclude
 
-`streams=` patterns of streams to include and `!pattern` of streams to remove. Overrides groups to allow adding or removing individual channels.
+`STREAMS=` regex patterns of streams to include and `!pattern` of streams to remove. Overrides groups to allow adding or removing individual channels.
 
-`rename=` patterns to strip from stream names. default is anywhere in name, `|pattern` for start, `pattern|` for end. `pattern=string` will replace pattern with string.
+`RENAME=` regex patterns to strip or replace in stream names. `pattern=string` will replace pattern with string.
 
-`replace=` replace any streams with the same name if a stream matching name+`pattern` exists. `|pattern` will replace streams if pattern+name exists. Example: `REPLACE= UHD` will turn 'ABC UHD' into 'ABC', removing any streams named 'ABC', but only if 'ABC UHD' exists. `REPLACE=|FHD: ` will do the same for 'FHD: ' at the start of the name.
+`REPLACE=` replace any streams with the same name if a stream matching name+`pattern` exists.\
+Example: `REPLACE= UHD$` will turn 'ABC UHD' into 'ABC', removing any streams named 'ABC', but only if 'ABC UHD' exists.\
+`REPLACE=^FHD: ` will do the same for 'FHD: ' at the start of the name.
 
-for all string matching, `key+=...` will extend existing list of values for the key.
+All matching allows multiple comma-separated values and is case-insensitive as all patterns and strings are by default uppercased. This generally makes filtering and merging easie but limits what regexes you can use. Set `UPPER=0` in config to disable uppercasing.
 
-Put xtream codes in config as\
+## account list
+Put xtream codes in config file as\
 `URL USER PASS PRI`\
 (PRI is optional and defaults to 0. Lower number = higher priority and will be preferred unless full.)
 
