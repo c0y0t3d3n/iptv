@@ -6,7 +6,8 @@ import json
 REGISTER_URL='https://iptv.tutoje.cz/api/import-key/register'
 FETCH_URL='https://iptv.tutoje.cz/api/import'
 APIKEY='.amz_api_key'
-h = sys.argv[1]
+
+h = sys.argv[1].split('=')[-1] #might be full URL, get the hash
 try:
     with open(APIKEY) as f:
         api_key=f.read()
