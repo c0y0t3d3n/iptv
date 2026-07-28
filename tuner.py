@@ -40,7 +40,7 @@ def config(config_file=None):
 
     DELAY=0
     DIRECT=0
-    FORMAT='ts'
+    FORMAT='http://%s:%s/%s/%s/%s'
     GROUPS=''
     RENAME=''
     STREAMS=''
@@ -87,7 +87,7 @@ def config(config_file=None):
     RENAME.append(',') #plex does not like commas in channel names
     # replace any channels with base name if a channel matching regex exists 
     # example: REPLACE=' LHD$' will rename 'ABC LHD' to 'ABC', removing any STREAMS named 'ABC', but only if 'ABC LHD' exists.
-    REPLACE=upper(REPLACE).split(',')
+    REPLACE=[r for r in upper(REPLACE).split(',') if r]
 
     # return config for info 
     return dict((k,globals()[k]) for k in ENV_VARS)
@@ -102,11 +102,15 @@ def check_acct(url,user,pw,pri=0):
     try:
         info=None
         info=xtream_request(url,user,pw,'server_info')
-        server_info,user_info=info['server_info'],info['user_info']
-        return user, pw, pri, int(user_info['active_cons']), int(user_info['max_connections']), user_info['status'], datetime.fromtimestamp(int(user_info['exp_date'])) if user_info['exp_date'] else None, server_info
+        return (
+            user, pw, pri, 
+            int(info['user_info']['active_cons']), int(info['user_info']['max_connections']), info['user_info']['status'], 
+            datetime.fromtimestamp(int(info['user_info']['exp_date'])) if info['user_info']['exp_date'] else None, 
+            info
+        )
     except Exception as e:
         logging.warning('%s %s %s %s %s',url,user,pw,e,info)
-        return user, pw, pri, None, None, str(info), None, {}
+        return user, pw, pri, None, None, str(info), None, info
 
 def refresh_accts(sources):
     refreshed={}
@@ -125,7 +129,6 @@ def select_acct(sources):
         if active:
             active.sort(key=lambda a: a[4]-a[3])
             selected[url]=active[-1]
-            logging.debug('selected %s %s %s %s %s/%s %s', url, *selected[url][:6])
     return selected #account from each source with most available connections
 
 def select_source(selected,source_list):
@@ -141,6 +144,7 @@ def fetch_lineup(selected):
     global GROUPS_INCLUDE, GROUPS_STARTSWITH, GROUPS_ENDSWITH, GROUPS_EXCLUDE, STREAMS_INCLUDE, STREAMS_EXCLUDE
     lineup={}
     for url,acct in selected.items():
+        logging.debug('selected %s %s', url, acct)
         user,pw=acct[:2]
         #fetch from selected source account
         groups_in=dict( (e['category_id'],upper(e['category_name'])) for e in xtream_request(url,user,pw,'get_live_categories') )
@@ -231,7 +235,7 @@ class HDHR_handler(http.server.BaseHTTPRequestHandler):
             self.end_headers()
 
     def do_GET(self):
-        global CONFIG_FILE,SOURCES,LINEUP,PROCS,LOGQ
+        global CONFIG_FILE,FORMAT,SOURCES,LINEUP,PROCS,LOGQ
         if self.path.startswith('/stream/'):
             k=self.path.split('/stream/')[-1]
             if LINEUP and k in LINEUP:
@@ -239,9 +243,9 @@ class HDHR_handler(http.server.BaseHTTPRequestHandler):
                 l=LINEUP[k]
                 SOURCES=refresh_accts(SOURCES)
                 source,a=select_source(select_acct(SOURCES),list(l['sources'].keys()))
-                url = 'http://%s:%s/live/%s/%s/%s.%s' % (a[-1]['url'].split('//')[-1].split('/')[0], 
-                                                         a[-1]['port'], a[0], a[1], 
-                                                         l['sources'][source], FORMAT)
+                url = FORMAT % (a[-1]['server_info']['url'].split('//')[-1].split('/')[0], 
+                                                         a[-1]['server_info']['port'], a[0], a[1], 
+                                                         l['sources'][source])
                 if int(DIRECT):
                     # send the URL to plex
                     logging.info('%s redirect to %s', self.client_address, url)

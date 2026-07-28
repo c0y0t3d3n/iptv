@@ -13,11 +13,11 @@ def generate_m3u(selected,lineup,env):
             url = list(l['sources'].keys())[0]
             sid = l['sources'][url]
             acct = selected[url]
-            user,pw,server_info=acct[0],acct[1],acct[-1]
-            print('http://%s:%s/live/%s/%s/%s.%s' % (
-            server_info['url'].split('//')[-1].split('/')[0],
-            server_info['port'],
-            user, pw, sid, env['FORMAT'] 
+            user,pw,server_info=acct[0],acct[1],acct[-1]['server_info']
+            print(env['FORMAT'] % (
+                server_info['url'].split('//')[-1].split('/')[0],
+                server_info['port'],
+                user, pw, sid
             ), file=f)
             i+=1
     print(m3u,i)
@@ -68,7 +68,7 @@ URL USER PASS
         lineup,selected,sources=scan(sys.argv[1])
         for url,accts in sources.items():
             for acct in accts:
-                print('%s %s %s %s %s/%s %s %s'%(url,*acct[:-1]))
+                print('%s %s %s %s %s/%s %s'%(url,*acct[:-1]))
         if m3u and lineup:
             generate_m3u(selected,lineup,env)
 
