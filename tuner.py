@@ -360,6 +360,20 @@ class HDHR_handler(http.server.BaseHTTPRequestHandler):
             self.send_header('Location',self.path.split('?')[0]+'?refresh')
             self.end_headers()
             return
+        elif '?amz' in self.path:
+            from amz import amz
+            LOGQ.clear()
+            param=self.path.split('=',1)[1]
+            url=unquote(param)
+            if param:
+                info=amz(unquote(param))
+                if info:
+                    with open(CONFIG_FILE,'a') as f:
+                        f.write(info+'\n')
+                        logging.info('fetched %s, added %s to %s',url,info,CONFIG_FILE)     
+            self.send_response(302)
+            self.send_header('Location',self.path.split('?')[0]+'?refresh')
+            self.end_headers()
         elif self.path=='/':
             html=self.html_start()
             try:
@@ -425,6 +439,11 @@ class HDHR_handler(http.server.BaseHTTPRequestHandler):
                 html+=str(e)
             html+='''</textarea><br>
             <input type=submit value="save config">
+            </form></p>'''
+            html+='''
+            <p><form method=get>
+                <a href='https://iptv.tutoje.cz' target=_new>AMZ IPTV</a> hash: <input type=text size=80 name=amz name=amz>
+                <input type=submit value="add account">
             </form></p>'''
         html+='''</body><html>'''
         return html
