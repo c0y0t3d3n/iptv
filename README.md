@@ -30,9 +30,12 @@ Example: `REPLACE= UHD$` will turn 'ABC UHD' into 'ABC', removing any streams na
 All matching allows multiple comma-separated values and is case-insensitive as all patterns and strings are by default uppercased. This generally makes filtering and merging easie but limits what regexes you can use. Set `UPPER=0` in config to disable uppercasing.
 
 ## account list
-Put xtream codes in config file as\
-`URL USER PASS PRI`\
-(PRI is optional and defaults to 0. Lower number = higher priority and will be preferred unless full.)
+Put xtream codes in config file as
+
+`URL USER PASS PRI`
+
+(PRI is optional and defaults to 0. Lower number = higher priority and will be preferred unless full.)\
+Paste an AMZ IPTV hash into the field below the config and hit 'add account' to fetch the account info and add it to the config.
 
 # usage
 ## tuner.py emulates a HDHomeRun tuner
