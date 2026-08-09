@@ -1,21 +1,20 @@
-# iptv
-M3U generator and tuner proxy for Plex
+Tumer emulation proxy for Plex
 
 Plex can’t manage IPTV but has a very good EPG. This emulates a HDHR and is designed to proxy IPTV using Plex as the EPG source. It can filter and rename channels to match what the Plex guide data is expecting. When Plex tunes a channel, it will refresh the status of all accounts and choose the one with the most open slots.
 
 If not all accounts have the same URL, the lineups from all providers are merged. This eliminates duplicate channels and chooses the least busy account across all if that channel is available from multiple sources. Make sure you have the filters set so channels have the same name across all providers.
 
-## getting started
-A docker compose-file to spin up Plex and tuner containers is included, modify as needed.
+## Getting started
+A docker-compose.yaml to spin up Plex and tuner containers is included, modify as needed.
 
-You’ll need a tuner.cfg with filters and xtream codes as documented in the README. A sample with working accounts and some generic filters is included.
+You need a tuner.cfg with filters and xtream codes. A sample with working accounts and some generic filters is included.
 
 To add the tuner to Plex you need to manually enter the SERVER_IP:SERVER_PORT and it should appear. When you rescan channels in Plex it reloads the config and fetches lineups. Once you have the group and channel name filters set properly Plex should be able to auto map most of them to one of your local cable/satellite provider lineups. Any manual mappings you do should stick even if you change IPTV providers, as long as you adjust the filters.
 
 Visit `http://SERVER_IP:SERVER_PORT/` for status, stream links, logs, and to edit the config. The number next to each stream link is the count of sources providing that channel.
 
-## config file entries
-Keys are case-insensitive. `key+=...` will extend existing list of values for the key.
+## Config file entries
+Keys are case-insensitive. `key+=...` will extend list of values for the key.
 
 `GROUPS=` regex patterns of groups to match, `!pattern` to exclude
 
@@ -30,18 +29,19 @@ Example: `REPLACE= UHD$` will turn 'ABC UHD' into 'ABC', removing any streams na
 All matching allows multiple comma-separated values and is case-insensitive as all patterns and strings are by default uppercased. This generally makes filtering and merging easie but limits what regexes you can use. Set `UPPER=0` in config to disable uppercasing.
 
 ## account list
-Put xtream codes in config file as
+Put xtream codes in config file as:
 
 `URL USER PASS PRI`
 
-(PRI is optional and defaults to 0. Lower number = higher priority and will be preferred unless full.)\
-Paste an AMZ IPTV hash into the field below the config and hit 'add account' to fetch the account info and add it to the config.
+(PRI is optional and defaults to 0. Lower number is higher priority and will be preferred unless full.)
 
-# usage
+Paste an iptvlookup.com URL into the field below the config and hit 'add account' to fetch the account info and add it to the config.
+
+# Usage
 ## tuner.py emulates a HDHomeRun tuner
 `./tuner.py config_file`
 
-server config (can set in config or environment):
+Server config (can set in config or environment):
 
 `SERVER_IP` and `SERVER_PORT` to set listening IP and port. Defaults to localhost:5004\
 `DIRECT=1` will bypass ffmpeg remuxing and redirect clients to the stream URL.\
