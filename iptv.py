@@ -26,21 +26,10 @@ if __name__ == '__main__':
     if len(sys.argv) < 2:
         print('''
 usage: 
-    ./iptv.sh <URL> <user/MAC> [pass if xtream] (to check account)
-    ./iptv.sh <URL> <user/MAC> [pass if xtream] [m3u_file] (to generate m3u)
-    ./iptv.sh <account_list> (to check all acccounts)
-    ./iptv.sh <account_list> [m3u file] (to generate m3u for least used account, tell threadfin to reload)
-
-IPTV account lists should be:
-
-GROUPS=pattern of groups to match, default is exact match, |pattern for start match, pattern| for end match, !pattern to exclude if match anywhere
-STREAMS=patterns to include and !patterns for streams to remove. overrides GROUPS and matches anywhere.
-RENAME=patterns to strip from channel names. default is anywhere in name, |pattern for start match, pattern| for end match. pattern=string will replace pattern with string.
-REPLACE=replace any channels with the same name if a channel matching name+pattern exists. |pattern will replace chanels if pattern+name exists.
-example: REPLACE=' UHD' will turn 'ABC UHD' into 'ABC', removing any channels named 'ABC', but only if 'ABC UHD' exists.
-
-followed by a list of xtream codes as:
-URL USER PASS
+    ./iptv.sh <URL> <user> <pas> (to check account)
+    ./iptv.sh <URL> <user> <pass> [m3u_file] (to generate m3u)
+    ./iptv.sh <account_list> (to check all accounts)
+    ./iptv.sh <account_list> [m3u file] (to generate m3u for least busy account)
 ''')
         sys.exit(0)
 
