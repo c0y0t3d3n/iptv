@@ -360,13 +360,13 @@ class HDHR_handler(http.server.BaseHTTPRequestHandler):
             self.send_header('Location',self.path.split('?')[0]+'?refresh')
             self.end_headers()
             return
-        elif '?amz' in self.path:
-            from amz import amz
+        elif '?add' in self.path:
+            from lookup import lookup
             LOGQ.clear()
             param=self.path.split('=',1)[1]
             url=unquote(param)
             if param:
-                info=amz(unquote(param))
+                info=lookup(unquote(param))
                 if info:
                     with open(CONFIG_FILE,'a') as f:
                         f.write(info+'\n')
@@ -442,7 +442,7 @@ class HDHR_handler(http.server.BaseHTTPRequestHandler):
             </form></p>'''
             html+='''
             <p><form method=get>
-                <a href='https://iptv.tutoje.cz' target=_new>AMZ IPTV</a> hash: <input type=text size=80 name=amz name=amz>
+                <a href='https://iptvlookup.com/list?filter_type=xtream' target=_new>IPTVlookup</a> URL: <input type=text size=80 name=add>
                 <input type=submit value="add account">
             </form></p>'''
         html+='''</body><html>'''
