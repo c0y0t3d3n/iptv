@@ -361,12 +361,12 @@ class HDHR_handler(http.server.BaseHTTPRequestHandler):
             self.end_headers()
             return
         elif '?add' in self.path:
-            from lookup import lookup
+            from lookup import iptvlookup
             LOGQ.clear()
             param=self.path.split('=',1)[1]
             url=unquote(param)
             if param:
-                info=lookup(unquote(param))
+                info=iptvlookup(unquote(param))
                 if info:
                     with open(CONFIG_FILE,'a') as f:
                         f.write(info+'\n')
