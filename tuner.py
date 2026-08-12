@@ -141,8 +141,9 @@ def select_source(selected,source_list):
     return sorted_sources[-1]
     
 def fetch_lineup(selected):
-    global GROUPS_INCLUDE, GROUPS_STARTSWITH, GROUPS_ENDSWITH, GROUPS_EXCLUDE, STREAMS_INCLUDE, STREAMS_EXCLUDE
+    global GROUPS_INCLUDE, GROUPS_STARTSWITH, GROUPS_ENDSWITH, GROUPS_EXCLUDE, STREAMS_INCLUDE, STREAMS_EXCLUDE, SOURCE_GROUPS
     lineup={}
+    SOURCE_GROUPS={}
     for url,acct in selected.items():
         logging.debug('selected %s %s', url, acct)
         user,pw=acct[:2]
@@ -151,6 +152,7 @@ def fetch_lineup(selected):
         groups=dict( (i,n) for i,n in groups_in.items() \
             if (not GROUPS) or any(re.search(p,n) for p in GROUPS) and not any(re.search(p,n) for p in GROUPS_EXCLUDE) )
         logging.debug('%s groups: %s',url,list(groups.values()))
+        SOURCE_GROUPS[url]=groups.values()
         streams_in=[s for s in xtream_request(url,user,pw,'get_live_streams') if s['category_id'] in groups \
             or any(re.search(p,upper(s['name'])) for p in STREAMS) ]
         #remove and rename streams
@@ -235,7 +237,7 @@ class HDHR_handler(http.server.BaseHTTPRequestHandler):
             self.end_headers()
 
     def do_GET(self):
-        global CONFIG_FILE,FORMAT,SOURCES,LINEUP,PROCS,LOGQ
+        global CONFIG_FILE,FORMAT,SOURCES,LINEUP,PROCS,LOGQ,SOURCE_GROUPS
         if self.path.startswith('/stream/'):
             k=self.path.split('/stream/')[-1]
             if LINEUP and k in LINEUP:
@@ -316,7 +318,7 @@ class HDHR_handler(http.server.BaseHTTPRequestHandler):
             if LINEUP:
                 cats=set(l['GuideCategory'] for l in LINEUP.values())
                 for g in sorted(cats):
-                    html+='<tr/><tr><th colspan=3>'+g+'</th></tr>\n'
+                    html+='<tr/><tr><th colspan=3 id="%s">%s</th></tr>\n'%(quote(g),g)
                     for k,l in [(k,l) for k,l in LINEUP.items() if l['GuideCategory']==g]:
                         html+='<tr><td>%s</td><td><a href="%s">%s</a></td><td>%s</td></tr>\n'%(
                             len(l['sources']),
@@ -324,6 +326,13 @@ class HDHR_handler(http.server.BaseHTTPRequestHandler):
                             l['GuideName'],
                             ' '.join(l['sources'].keys()) if self.path.startswith('/lineup_sources') else ''
                         )
+                html+='''</table></p>'''
+                html+='''<p><table>'''
+                for s,sg in SOURCE_GROUPS.items():
+                    html+='<tr><th>%s</th><td>%s</td></tr>'%(
+                        s,
+                        ','.join('<a href="#%s">%s</a>'%(quote(g),g) for g in sorted(sg))
+                    )
             html+='''</table></p>'''
             html+=self.html_end()
             self.send_response(200)
@@ -428,8 +437,9 @@ class HDHR_handler(http.server.BaseHTTPRequestHandler):
         return html
 
     def html_end(self):
+        html=''
         if CONFIG_FILE:
-            html='''
+            html+='''
             <p>&nbsp;</p><p><form method=get>
             <textarea style=font-family:monospace name=config cols=100 rows=20>'''
             try:
