@@ -21,7 +21,7 @@ def iptvlookup(url):
             elif payload is not None:
                 payload+=unescape(l)
         j=json.loads(payload)
-        return '%s:%s %s %s' % (
+        return 'http://%s:%s %s %s' % (
             j['server_info']['url'],
             j['server_info']['port'],
             j['user_info']['username'],
