@@ -57,7 +57,7 @@ usage:
         lineup,selected,sources=scan(sys.argv[1])
         for url,accts in sources.items():
             for acct in accts:
-                print('%s %s %s %s %s/%s %s'%(url,*acct[:-1]))
+                print('%s %s %s %s %s/%s %s %s'%(url,*acct[:-1]))
         if m3u and lineup:
             generate_m3u(selected,lineup,env)
 

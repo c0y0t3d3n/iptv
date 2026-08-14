@@ -9,6 +9,7 @@ import requests
 import http.server
 import subprocess
 import logging
+import random
 from logging.handlers import QueueHandler
 from collections import deque
 from urllib.parse import quote,unquote
@@ -23,10 +24,10 @@ def upper(s):
         return s
 
 def config(config_file=None):
-    ENV_VARS=['SERVER_IP','SERVER_PORT','CMD','DELAY','DIRECT','GROUPS','STREAMS','RENAME','REPLACE','FORMAT','BUFFER','LOGLEVEL','TUNER_COUNT','UPPER']
+    ENV_VARS=['SERVER_IP','SERVER_PORT','CMD','DELAY','DIRECT','GROUPS','STREAMS','RENAME','REPLACE','FORMAT','BUFFER','LOGLEVEL','TUNER_COUNT','UPPER','CHECK']
 
     #set defaults 
-    global SERVER_IP,SERVER_PORT,CMD,DELAY,DIRECT,GROUPS,STREAMS,RENAME,REPLACE,FORMAT,BUFFER,LOGLEVEL,LOGDEPTH,TUNER_COUNT,UPPER
+    global SERVER_IP,SERVER_PORT,CMD,DELAY,DIRECT,GROUPS,STREAMS,RENAME,REPLACE,FORMAT,BUFFER,LOGLEVEL,LOGDEPTH,TUNER_COUNT,UPPER,CHECK
     LOGLEVEL=logging.INFO
     LOGDEPTH=100
 
@@ -40,6 +41,7 @@ def config(config_file=None):
 
     DELAY=0
     DIRECT=0
+    CHECK=0
     FORMAT='http://%s:%s/%s/%s/%s'
     GROUPS=''
     RENAME=''
@@ -72,7 +74,7 @@ def config(config_file=None):
         globals()[e]=os.getenv(e,globals()[e])
 
     #parse config
-    global GROUPS_EXCLUDE, STREAMS_EXCLUDE
+    global GROUPS_EXCLUDE,STREAMS_EXCLUDE
     # channel group regexes, !pattern to exclude
     GROUPS=upper(GROUPS).split(',')
     GROUPS_EXCLUDE=[f[1:] for f in GROUPS if f.startswith('!')]
@@ -112,9 +114,12 @@ def check_acct(url,user,pw,pri=0):
         logging.warning('%s %s %s %s %s',url,user,pw,e,info)
         return user, pw, pri, None, None, str(info), None, info
 
-def refresh_accts(sources):
+def refresh_accts(accounts):
     refreshed={}
-    for url,accts in sources.items():
+    n=int(CHECK)
+    for url,accts in accounts.items():
+        if n:
+            accts=random.sample(accts,min(n,len(accts)))
         for a in accts:
             refreshed.setdefault(url,[]).append(check_acct(url,*a[0:3]))
             time.sleep(int(DELAY))
@@ -141,7 +146,7 @@ def select_source(selected,source_list):
     return sorted_sources[-1]
     
 def fetch_lineup(selected):
-    global GROUPS_INCLUDE, GROUPS_STARTSWITH, GROUPS_ENDSWITH, GROUPS_EXCLUDE, STREAMS_INCLUDE, STREAMS_EXCLUDE, SOURCE_GROUPS
+    global GROUPS_INCLUDE,GROUPS_STARTSWITH,GROUPS_ENDSWITH,GROUPS_EXCLUDE,STREAMS_INCLUDE,STREAMS_EXCLUDE,SOURCE_GROUPS
     lineup={}
     SOURCE_GROUPS={}
     for url,acct in selected.items():
@@ -192,12 +197,12 @@ def fetch_lineup(selected):
     return lineup
 
 def scan(config_file):
-    global SOURCES
-    SOURCES={}
+    global ACCOUNTS
+    sources={}
     try:
         logging.info('reloading %s',config_file)
         #load accounts from config
-        accts={}
+        ACCOUNTS={}
         with open(config_file) as f:
             lines=f.readlines()
             for l in lines:
@@ -206,16 +211,16 @@ def scan(config_file):
                         l=l.strip().split()
                         url,user,pw=l[:3]
                         pri=l[3] if len(l)>3 else 0
-                        accts.setdefault(url,[]).append((user,pw,pri))
+                        ACCOUNTS.setdefault(url,[]).append((user,pw,pri))
                     except: pass
         #refresh account status
-        SOURCES=refresh_accts(accts)
-        selected=select_acct(SOURCES)
-        return fetch_lineup(selected),selected,SOURCES
+        sources=refresh_accts(ACCOUNTS)
+        selected=select_acct(sources)
+        return fetch_lineup(selected),selected,sources
     except Exception as e:
         logging.exception(e)
         logging.warning('no usable accounts: %s',e)
-        return None,None,SOURCES
+        return None,None,sources
 
 class HDHR_handler(http.server.BaseHTTPRequestHandler):
     # emualte a HDHomeRun
@@ -225,7 +230,7 @@ class HDHR_handler(http.server.BaseHTTPRequestHandler):
             # reload config and scan
             try:
                 config(CONFIG_FILE)
-                LINEUP = scan(CONFIG_FILE)[0]
+                LINEUP,selected,SOURCES = scan(CONFIG_FILE)
                 self.send_response(200)
                 self.end_headers()
             except Exception as e:
@@ -237,13 +242,45 @@ class HDHR_handler(http.server.BaseHTTPRequestHandler):
             self.end_headers()
 
     def do_GET(self):
-        global CONFIG_FILE,FORMAT,SOURCES,LINEUP,PROCS,LOGQ,SOURCE_GROUPS
-        if self.path.startswith('/stream/'):
+        global CONFIG_FILE,FORMAT,ACCOUNTS,SOURCES,LINEUP,PROCS,LOGQ,SOURCE_GROUPS
+        if '?refresh' in self.path:
+            config(CONFIG_FILE)
+            LINEUP,selected,SOURCES = scan(CONFIG_FILE)   
+            self.send_response(302)
+            self.send_header('Location',self.path.split('?')[0])
+            self.end_headers()
+            return
+        elif '?config' in self.path:
+            LOGQ.clear()
+            param=self.path.split('=',1)[1]
+            text=unquote(param.replace('+',' '))
+            with open(CONFIG_FILE,'w') as f:
+                f.write(text)
+                logging.info('wrote %s',CONFIG_FILE)
+            self.send_response(302)
+            self.send_header('Location',self.path.split('?')[0]+'?refresh')
+            self.end_headers()
+            return
+        elif '?add' in self.path:
+            from lookup import iptvlookup
+            LOGQ.clear()
+            param=self.path.split('=',1)[1]
+            url=unquote(param)
+            if param:
+                info=iptvlookup(unquote(param))
+                if info:
+                    with open(CONFIG_FILE,'a') as f:
+                        f.write(info+'\n')
+                        logging.info('fetched %s, added %s to %s',url,info,CONFIG_FILE)     
+            self.send_response(302)
+            self.send_header('Location',self.path.split('?')[0]+'?refresh')
+            self.end_headers()
+        elif self.path.startswith('/stream/'):
             k=self.path.split('/stream/')[-1]
             if LINEUP and k in LINEUP:
                 logging.info('%s stream %s'%(self.client_address,k))
                 l=LINEUP[k]
-                SOURCES=refresh_accts(SOURCES)
+                SOURCES=refresh_accts(ACCOUNTS)
                 source,a=select_source(select_acct(SOURCES),list(l['sources'].keys()))
                 url = FORMAT % (a[-1]['server_info']['url'].split('//')[-1].split('/')[0], 
                                                          a[-1]['server_info']['port'], a[0], a[1], 
@@ -351,38 +388,6 @@ class HDHR_handler(http.server.BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(html.encode())
             return
-        elif '?refresh' in self.path:
-            config(CONFIG_FILE)
-            LINEUP = scan(CONFIG_FILE)[0]   
-            self.send_response(302)
-            self.send_header('Location',self.path.split('?')[0])
-            self.end_headers()
-            return
-        elif '?config' in self.path:
-            LOGQ.clear()
-            param=self.path.split('=',1)[1]
-            text=unquote(param.replace('+',' '))
-            with open(CONFIG_FILE,'w') as f:
-                f.write(text)
-                logging.info('wrote %s',CONFIG_FILE)
-            self.send_response(302)
-            self.send_header('Location',self.path.split('?')[0]+'?refresh')
-            self.end_headers()
-            return
-        elif '?add' in self.path:
-            from lookup import iptvlookup
-            LOGQ.clear()
-            param=self.path.split('=',1)[1]
-            url=unquote(param)
-            if param:
-                info=iptvlookup(unquote(param))
-                if info:
-                    with open(CONFIG_FILE,'a') as f:
-                        f.write(info+'\n')
-                        logging.info('fetched %s, added %s to %s',url,info,CONFIG_FILE)     
-            self.send_response(302)
-            self.send_header('Location',self.path.split('?')[0]+'?refresh')
-            self.end_headers()
         elif self.path=='/':
             html=self.html_start()
             try:
@@ -465,7 +470,7 @@ class LogQ(deque):
         self.append(item)
 
 def main(*args):
-    global CONFIG_FILE, LOGQ
+    global CONFIG_FILE, LOGQ, SOURCES
     CONFIG_FILE=args[0] if args else None
     env=config(CONFIG_FILE)
     LOGQ=LogQ(maxlen=LOGDEPTH)
@@ -475,7 +480,7 @@ def main(*args):
     for k,v in env.items():
         logging.debug('%s=%s',k,v)
     global LINEUP
-    LINEUP = scan(CONFIG_FILE)[0]
+    LINEUP,selected,SOURCES = scan(CONFIG_FILE)
     httpd = http.server.ThreadingHTTPServer((SERVER_IP, int(SERVER_PORT)), HDHR_handler)
     logging.info('serving at http://%s:%s' % (SERVER_IP, SERVER_PORT))
     httpd.serve_forever()
