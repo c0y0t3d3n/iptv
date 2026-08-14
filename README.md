@@ -33,7 +33,8 @@ Put xtream codes in config file as:
 
 `URL USER PASS PRI`
 
-(PRI is optional and defaults to 0. Lower number is higher priority and will be preferred unless full.)
+PRI is optional and defaults to 0. Lower number is higher priority and will be preferred unless full.\
+If you have a large number of accounts for a source, you probablty do not want to hit all of them every time. Set `CHECK=n` to randomly select `n` accounts per source to check.
 
 Paste an iptvlookup.com URL into the field below the config and hit 'add account' to fetch the account info and add it to the config.
 
