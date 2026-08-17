@@ -128,9 +128,9 @@ def refresh_accts(accounts):
 def select_acct(sources):
     selected={}
     for url,accts in sources.items():
-        #get accounts that are active and have free slots
-        active=[a for a in accts if a[5].lower()=='active' and a[4]-a[3] > 0]
-        #sort by max-active to get most free slots at end
+        #get accounts that are active
+        active=[a for a in accts if a[5].lower()=='active']
+        #sort by max-used to get most free slots at end
         if active:
             active.sort(key=lambda a: a[4]-a[3])
             selected[url]=active[-1]
@@ -374,7 +374,7 @@ class HDHR_handler(http.server.BaseHTTPRequestHandler):
                         for url,accts in SOURCES.items():
                             html+='<tr><th colspan=7>%s</th><td>(%s streams)</td></tr>'%(url,
                             len(list(s for s in LINEUP.values() if url in s['sources'])) if LINEUP else '0')
-                            for a in accts:
+                            for a in sorted(accts, key=lambda a: a[4]-a[3], reverse=True):
                                 html+='<tr><td></td><td>%s</td><td>%s</td><td>%s</td><td>%s/%s</td><td>%s</td><td>%s</td></tr>\n'%a[:-1]
                         html+='''<tr><td><form method=post><input type=submit name=reload value=reload></form></td></tr></table></p>'''
                     html+='''<p><table>'''
