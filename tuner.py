@@ -223,59 +223,51 @@ def scan(config_file):
         return None,None,sources
 
 class HDHR_handler(http.server.BaseHTTPRequestHandler):
+
+    def send(self,html='',redirect=None,code=200):
+        self.send_response(302 if redirect and code==200 else code)
+        if redirect:
+            self.send_header('Location',redirect)
+        self.end_headers()
+        self.wfile.write(html.encode())
+
     # emualte a HDHomeRun
     def do_POST(self):
         global CONFIG_FILE,SOURCES,LINEUP
-        if self.path.startswith('/lineup.post'):
-            # reload config and scan
-            try:
-                config(CONFIG_FILE)
-                LINEUP,selected,SOURCES = scan(CONFIG_FILE)
-                self.send_response(200)
-                self.end_headers()
-            except Exception as e:
-                logging.exception(e)
-                self.send_response(500)
-                self.end_headers()
-        else:
-            self.send_response(404)
-            self.end_headers()
-
-    def do_GET(self):
-        global CONFIG_FILE,FORMAT,ACCOUNTS,SOURCES,LINEUP,PROCS,LOGQ,SOURCE_GROUPS
-        if '?refresh' in self.path:
-            config(CONFIG_FILE)
-            LINEUP,selected,SOURCES = scan(CONFIG_FILE)   
-            self.send_response(302)
-            self.send_header('Location',self.path.split('?')[0])
-            self.end_headers()
-            return
-        elif '?config' in self.path:
-            LOGQ.clear()
-            param=self.path.split('=',1)[1]
-            text=unquote(param.replace('+',' '))
-            with open(CONFIG_FILE,'w') as f:
-                f.write(text)
-                logging.info('wrote %s',CONFIG_FILE)
-            self.send_response(302)
-            self.send_header('Location',self.path.split('?')[0]+'?refresh')
-            self.end_headers()
-            return
-        elif '?add' in self.path:
-            from lookup import iptvlookup
-            LOGQ.clear()
-            param=self.path.split('=',1)[1]
-            url=unquote(param)
-            if param:
-                info=iptvlookup(unquote(param))
+        # get posting page
+        referer=self.headers.get('referer')
+        # get POST data 
+        l=int(self.headers.get('content-length',0))
+        key,val=(unquote(self.rfile.read(l).decode().replace('+',' ')).split('=',1)) if l else (None,None)
+        try:
+            # config text was submitted
+            if key == 'config':
+                with open(CONFIG_FILE,'w') as f:
+                    f.write(val)
+                    logging.info('wrote %s',CONFIG_FILE) 
+            # url/hash was submitted
+            elif key == 'add':
+                from lookup import iptvlookup
+                info=iptvlookup(val)
                 if info:
                     with open(CONFIG_FILE,'a') as f:
                         f.write(info+'\n')
-                        logging.info('fetched %s, added %s to %s',url,info,CONFIG_FILE)     
-            self.send_response(302)
-            self.send_header('Location',self.path.split('?')[0]+'?refresh')
-            self.end_headers()
-        elif self.path.startswith('/stream/'):
+                        logging.info('fetched %s, added %s to %s',val,info,CONFIG_FILE)     
+        except Exception as e:
+            logging.exception(e)
+            self.send(str(e),code=500)
+            return
+        #reload configf and lineups
+        config(CONFIG_FILE)
+        LINEUP,selected,SOURCES=scan(CONFIG_FILE)
+        #redir to posting page
+        self.send(redirect=referer)
+
+    def do_GET(self):
+        global CONFIG_FILE,FORMAT,ACCOUNTS,SOURCES,LINEUP,PROCS,LOGQ,SOURCE_GROUPS
+
+        #serve streams
+        if self.path.startswith('/stream/'):
             k=self.path.split('/stream/')[-1]
             if LINEUP and k in LINEUP:
                 logging.info('%s stream %s'%(self.client_address,k))
@@ -288,9 +280,7 @@ class HDHR_handler(http.server.BaseHTTPRequestHandler):
                 if int(DIRECT):
                     # send the URL to plex
                     logging.info('%s redirect to %s', self.client_address, url)
-                    self.send_response(302)
-                    self.send_header('Location', url)
-                    self.end_headers()
+                    self.send(redirect=url)
                 else:
                     # remux with ffmpeg
                     args = CMD % url
@@ -301,11 +291,9 @@ class HDHR_handler(http.server.BaseHTTPRequestHandler):
                         PROCS[cmd.pid]=(self.client_address,args)
                     except Exception as e:
                         logging.exception(e)
-                        self.send_response(500)
-                        self.end_headers()
+                        self.send(str(e),code=500)
                         return
-                    self.send_response(200)
-                    self.end_headers()
+                    self.send()
                     try:
                         while cmd.poll() is None: #cmd exited
                             data = cmd.stdout.read(int(BUFFER))
@@ -318,111 +306,95 @@ class HDHR_handler(http.server.BaseHTTPRequestHandler):
                     cmd.wait()
                     logging.info('%s pid %s stop (%d)', self.client_address, cmd.pid, cmd.returncode)
                     del PROCS[cmd.pid]
-                return
+
+        #serve HDHR pages
         elif self.path=='/discover.json':
-            self.send_response(200)
-            self.send_header('Content-type', 'application/json')
-            self.end_headers()
-            self.wfile.write(json.dumps({
+            self.send(json.dumps({
                 "DeviceID": "TUNER",
                 "FriendlyName": "Tuner",
                 "TunerCount": TUNER_COUNT,
                 'BaseURL':'http://%s:%s'%(SERVER_IP,SERVER_PORT),
                 'LineupURL':'http://%s:%s/lineup.json'%(SERVER_IP,SERVER_PORT),
-            }).encode())
-            return
+            }))
+
         elif self.path=='/lineup_status.json':
-            self.send_response(200)
-            self.send_header('Content-type', 'application/json')
-            self.end_headers()
-            self.wfile.write(json.dumps({
+            self.send(json.dumps({
                 'ScanInProgress':0,
                 'ScanPossible':1,
                 'Source':'Cable'
-            }).encode())
-            return
+            }))
+
         elif self.path=='/lineup.json':
-            self.send_response(200)
-            self.send_header('Content-type', 'application/json')
-            self.end_headers()
-            self.wfile.write(json.dumps(list(LINEUP.values())).encode())
-            return
-        elif self.path=='/lineup':
-            html=self.html_start()
-            html+='''<p><table>'''
-            if LINEUP:
-                cats=set(l['GuideCategory'] for l in LINEUP.values())
-                for g in sorted(cats):
-                    html+='<tr/><tr><th colspan=2 id="%s">%s</th></tr>\n'%(quote(g),g)
-                    for k,l in [(k,l) for k,l in LINEUP.items() if l['GuideCategory']==g]:
-                        html+='<tr><td>%s</td><td><a href="%s">%s</a></td></tr>\n'%(
-                            ''.join(s.split('//')[1][0] for s in l['sources']),
-                            l['URL'],
-                            l['GuideName']
-                        )
-                html+='''</table></p>\n <p><table>'''
-                for s,sg in SOURCE_GROUPS.items():
-                    html+='<tr><th>%s</th><td>%s</td></tr>'%(
-                        s,
-                        ','.join('<a href="#%s">%s</a>'%(quote(g),g) for g in sorted(sg))
-                    )
-            html+='''</table></p>'''
-            html+=self.html_end()
-            self.send_response(200)
-            self.end_headers()
-            self.wfile.write(html.encode())
-            return
-        elif self.path=='/log':
-            html=self.html_start()
-            html+='''</table></p><p>'''
-            for l in LOGQ:
-                html+=l.msg+'<br>'
-            html+='''
-            </p>'''
-            html+=self.html_end()
-            self.send_response(200)
-            self.end_headers()
-            self.wfile.write(html.encode())
-            return
-        elif self.path=='/':
-            html=self.html_start()
+            self.send(json.dumps(list(LINEUP.values())))
+
+        #serve HTML pages
+        else:
             try:
-                if PROCS:
-                    html+='''<p><table><tr><th>pid</th><th>client</th><th>command</th></tr>'''
-                    for pid,args in PROCS.items():
-                        html+='<tr><td>%s</td><td>%s</td><td>%s</td></tr>\n'%(pid,*args)
-                    html+='''
-                    </table>
-                </p>'''
-                env=config(CONFIG_FILE)
-                if SOURCES:
-                    html+='''<p><table><tr><th></th><th>user</th><th>pass</th><th>priority</th><th colspan=2>status</th><th>expires</th></tr>'''
-                    for url,accts in SOURCES.items():
-                        html+='<tr><th colspan=7>%s</th><td>(%s streams)</td></tr>'%(url,
-                        len(list(s for s in LINEUP.values() if url in s['sources'])) if LINEUP else '0')
-                        for a in accts:
-                            html+='<tr><td></td><td>%s</td><td>%s</td><td>%s</td><td>%s/%s</td><td>%s</td><td>%s</td></tr>\n'%a[:-1]
-                    html+='''<tr><td><form method=get><input type=submit name=refresh value=refresh></form></td></tr></table></p>'''
-                html+='''<p><table>'''
-                for k,v in sorted(env.items()):
-                    html+='<tr><th>%s</th><td>%s</td></tr>\n'%(k,v)
-                html+='''</table></p>'''
-                self.send_response(200)
-                self.end_headers()
+                code=200
+                html=self.html_start()
+
+                if self.path == '/lineup':
+                    html+='''<p><table>'''
+                    if LINEUP:
+                        cats=set(l['GuideCategory'] for l in LINEUP.values())
+                        for g in sorted(cats):
+                            html+='<tr/><tr><th colspan=2 id="%s">%s</th></tr>\n'%(quote(g),g)
+                            for k,l in [(k,l) for k,l in LINEUP.items() if l['GuideCategory']==g]:
+                                html+='<tr><td>%s</td><td><a href="%s">%s</a></td></tr>\n'%(
+                                    ''.join(s.split('//')[1][0] for s in l['sources']),
+                                    l['URL'],
+                                    l['GuideName']
+                                )
+                        html+='''</table></p>\n <p><table>'''
+                        for s,sg in SOURCE_GROUPS.items():
+                            html+='<tr><th>%s</th><td>%s</td></tr>'%(
+                                s,
+                                ','.join('<a href="#%s">%s</a>'%(quote(g),g) for g in sorted(sg))
+                            )
+                    html+='''</table></p>'''
+
+                elif self.path=='/log':
+                    html=self.html_start()
+                    html+='''<p>'''
+                    for l in LOGQ:
+                        html+=l.msg+'<br>'
+                    html+='''</p>'''
+
+                elif self.path=='/':
+                    if PROCS:
+                        html+='''<p><table><tr><th>pid</th><th>client</th><th>command</th></tr>'''
+                        for pid,args in PROCS.items():
+                            html+='<tr><td>%s</td><td>%s</td><td>%s</td></tr>\n'%(pid,*args)
+                        html+='''
+                        </table>
+                    </p>'''
+                    env=config(CONFIG_FILE)
+                    if SOURCES:
+                        html+='''<p><table><tr><th></th><th>user</th><th>pass</th><th>priority</th><th colspan=2>status</th><th>expires</th></tr>'''
+                        for url,accts in SOURCES.items():
+                            html+='<tr><th colspan=7>%s</th><td>(%s streams)</td></tr>'%(url,
+                            len(list(s for s in LINEUP.values() if url in s['sources'])) if LINEUP else '0')
+                            for a in accts:
+                                html+='<tr><td></td><td>%s</td><td>%s</td><td>%s</td><td>%s/%s</td><td>%s</td><td>%s</td></tr>\n'%a[:-1]
+                        html+='''<tr><td><form method=post><input type=submit name=reload value=reload></form></td></tr></table></p>'''
+                    html+='''<p><table>'''
+                    for k,v in sorted(env.items()):
+                        html+='<tr><th>%s</th><td>%s</td></tr>\n'%(k,v)
+                    html+='''</table></p>'''
+
+                else:
+                    code=404
+
             except Exception as e:
                 logging.exception(e)
-                self.send_response(500)
-                self.end_headers()
-                html+='\n\n'+str(e)
+                code=500
+                html+='\n'+str(e)
+
             html+=self.html_end()
-            self.wfile.write(html.encode())
-            return
-        # bad request
-        self.send_response(404)
-        self.end_headers()     
+            self.send(html,code=code)
 
     def html_start(self):
-        html='''
+        return '''
 <html><head>
         <style>
             body{font-family:monospace}
@@ -435,13 +407,12 @@ class HDHR_handler(http.server.BaseHTTPRequestHandler):
             <th><a href='/log'>log</a>&nbsp;&nbsp;&nbsp;</th>
             <th><a href='/lineup'>lineup</a>&nbsp;</th><td>(%s streams)</td>
         </tr></table></p>''' % (len(list(LINEUP)) if LINEUP else '0')
-        return html
 
     def html_end(self):
         html=''
         if CONFIG_FILE:
             html+='''
-            <p>&nbsp;</p><p><form method=get>
+            <p>&nbsp;</p><p><form method=post>
             <textarea style=font-family:monospace name=config cols=100 rows=20>'''
             try:
                 with open(CONFIG_FILE) as f:
@@ -452,7 +423,7 @@ class HDHR_handler(http.server.BaseHTTPRequestHandler):
             <input type=submit value="save config">
             </form></p>'''
             html+='''
-            <p><form method=get>
+            <p><form method=post>
                 <a href='https://iptvlookup.com/list?filter_type=xtream' target=_new>IPTVlookup</a> URL: <input type=text size=80 name=add>
                 <input type=submit value="add account">
             </form></p>'''
