@@ -347,24 +347,20 @@ class HDHR_handler(http.server.BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(json.dumps(list(LINEUP.values())).encode())
             return
-        elif self.path.startswith('/lineup'):
+        elif self.path=='/lineup':
             html=self.html_start()
-            if not self.path.startswith('/lineup_sources'):
-                html+='''<p><a href='/lineup_sources'><b>show sources</b></a></p>'''
             html+='''<p><table>'''
             if LINEUP:
                 cats=set(l['GuideCategory'] for l in LINEUP.values())
                 for g in sorted(cats):
-                    html+='<tr/><tr><th colspan=3 id="%s">%s</th></tr>\n'%(quote(g),g)
+                    html+='<tr/><tr><th colspan=2 id="%s">%s</th></tr>\n'%(quote(g),g)
                     for k,l in [(k,l) for k,l in LINEUP.items() if l['GuideCategory']==g]:
-                        html+='<tr><td>%s</td><td><a href="%s">%s</a></td><td>%s</td></tr>\n'%(
-                            len(l['sources']),
+                        html+='<tr><td>%s</td><td><a href="%s">%s</a></td></tr>\n'%(
+                            ''.join(s.split('//')[1][0] for s in l['sources']),
                             l['URL'],
-                            l['GuideName'],
-                            ' '.join(l['sources'].keys()) if self.path.startswith('/lineup_sources') else ''
+                            l['GuideName']
                         )
-                html+='''</table></p>'''
-                html+='''<p><table>'''
+                html+='''</table></p>\n <p><table>'''
                 for s,sg in SOURCE_GROUPS.items():
                     html+='<tr><th>%s</th><td>%s</td></tr>'%(
                         s,
