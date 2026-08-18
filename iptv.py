@@ -2,7 +2,7 @@
 import sys
 import os
 import logging
-from tuner import config, check_acct, fetch_lineup, scan
+from tuner import config, check_acct, fetch_lineup, rescan
 
 def generate_m3u(selected,lineup,env):
     i=0
@@ -45,7 +45,7 @@ usage:
         print('%s %s %s %s %s/%s %s %s'%(url,*acct[:-1]))
         if m3u: 
             selected={url:acct}
-            lineup=fetch_lineup(selected)
+            lineup=fetch_lineup(selected.items())
             generate_m3u(selected,lineup,env)
     else:
         if len(sys.argv)>2:
@@ -54,10 +54,10 @@ usage:
             m3u=None
         env=config(sys.argv[1])
         logging.basicConfig(level=int(env['LOGLEVEL']))
-        lineup,selected,sources=scan(sys.argv[1])
+        lineup,selected,sources=rescan(sys.argv[1])
         for url,accts in sources.items():
             for acct in accts:
                 print('%s %s %s %s %s/%s %s %s'%(url,*acct[:-1]))
         if m3u and lineup:
-            generate_m3u(selected,lineup,env)
+            generate_m3u(dict(selected),lineup,env)
 
