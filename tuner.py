@@ -120,8 +120,10 @@ def refresh_accts(accounts):
     for url,accts in accounts.items():
         if n:
             accts=random.sample(accts,min(n,len(accts)))
+        logging.info('refreshing %s accounts for %s',len(accts),url)
         for a in accts:
             refreshed.setdefault(url,[]).append(check_acct(url,*a[0:3]))
+            logging.debug(refreshed[url][-1][-1])
             time.sleep(int(DELAY))
     return refreshed
 
@@ -133,13 +135,15 @@ def select_acct(sources):
         #sort by max-used to get most free slots at end
         if active:
             active.sort(key=lambda a: a[4]-a[3])
+            logging.debug('%s: %s active',url,len(active))
             selected[url]=active[-1]
     return selected #account from each source with most available connections
 
 def select_source(selected,source_list):
     #return url, acct data of source with highest priority, most free slots
-    selected_sources=list((k,v) for k,v in selected.items() if k in source_list) #filter to stream sources
-    #sort by most free slots, then by priotiy to always prefer higher prioirty source
+    #filter to this stream's sources with free slots
+    selected_sources=list((s,a) for s,a in selected.items() if s in source_list and a[4]-a[3] > 0) 
+    #sort by most free slots, then by priority to always prefer higher prioirty source
     sorted_sources=sorted(
         sorted(selected_sources, key=lambda s: s[1][4]-s[1][3]),  
         key=lambda s: int(s[1][2]), reverse=True)
@@ -150,7 +154,7 @@ def fetch_lineup(selected):
     lineup={}
     SOURCE_GROUPS={}
     for url,acct in selected.items():
-        logging.debug('selected %s %s', url, acct)
+        logging.debug('selected %s', acct[-1])
         user,pw=acct[:2]
         #fetch from selected source account
         groups_in=dict( (e['category_id'],upper(e['category_name'])) for e in xtream_request(url,user,pw,'get_live_categories') )
@@ -223,7 +227,7 @@ def scan(config_file):
         return None,None,sources
 
 class HDHR_handler(http.server.BaseHTTPRequestHandler):
-
+    # emulate a HDHR
     def send(self,html='',redirect=None,code=200):
         self.send_response(302 if redirect and code==200 else code)
         if redirect:
@@ -231,11 +235,8 @@ class HDHR_handler(http.server.BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(html.encode())
 
-    # emualte a HDHomeRun
     def do_POST(self):
         global CONFIG_FILE,SOURCES,LINEUP
-        # get posting page
-        referer=self.headers.get('referer')
         # get POST data 
         l=int(self.headers.get('content-length',0))
         key,val=(unquote(self.rfile.read(l).decode().replace('+',' ')).split('=',1)) if l else (None,None)
@@ -257,11 +258,11 @@ class HDHR_handler(http.server.BaseHTTPRequestHandler):
             logging.exception(e)
             self.send(str(e),code=500)
             return
-        #reload configf and lineups
+        #reload config and lineups
         config(CONFIG_FILE)
         LINEUP,selected,SOURCES=scan(CONFIG_FILE)
-        #redir to posting page
-        self.send(redirect=referer)
+        #respond like GET of posting page
+        self.do_GET()
 
     def do_GET(self):
         global CONFIG_FILE,FORMAT,ACCOUNTS,SOURCES,LINEUP,PROCS,LOGQ,SOURCE_GROUPS
@@ -274,6 +275,7 @@ class HDHR_handler(http.server.BaseHTTPRequestHandler):
                 l=LINEUP[k]
                 SOURCES=refresh_accts(ACCOUNTS)
                 source,a=select_source(select_acct(SOURCES),list(l['sources'].keys()))
+                logging.debug('selected %s', a[-1])
                 url = FORMAT % (a[-1]['server_info']['url'].split('//')[-1].split('/')[0], 
                                                          a[-1]['server_info']['port'], a[0], a[1], 
                                                          l['sources'][source])
@@ -306,8 +308,10 @@ class HDHR_handler(http.server.BaseHTTPRequestHandler):
                     cmd.wait()
                     logging.info('%s pid %s stop (%d)', self.client_address, cmd.pid, cmd.returncode)
                     del PROCS[cmd.pid]
+            else:
+                self.send(stream,404)
 
-        #serve HDHR pages
+        #serve HDHR data
         elif self.path=='/discover.json':
             self.send(json.dumps({
                 "DeviceID": "TUNER",
@@ -333,7 +337,8 @@ class HDHR_handler(http.server.BaseHTTPRequestHandler):
                 code=200
                 html=self.html_start()
 
-                if self.path == '/lineup':
+                #serve lineup
+                if self.path.startswith('/lineup'):
                     html+='''<p><table>'''
                     if LINEUP:
                         cats=set(l['GuideCategory'] for l in LINEUP.values())
@@ -353,14 +358,16 @@ class HDHR_handler(http.server.BaseHTTPRequestHandler):
                             )
                     html+='''</table></p>'''
 
-                elif self.path=='/log':
+                #serve logs
+                elif self.path.startswith('/log'): 
                     html=self.html_start()
                     html+='''<p>'''
                     for l in LOGQ:
                         html+=l.msg+'<br>'
                     html+='''</p>'''
 
-                elif self.path=='/':
+                # catch-all to serve status page
+                else: 
                     if PROCS:
                         html+='''<p><table><tr><th>pid</th><th>client</th><th>command</th></tr>'''
                         for pid,args in PROCS.items():
@@ -382,9 +389,6 @@ class HDHR_handler(http.server.BaseHTTPRequestHandler):
                         html+='<tr><th>%s</th><td>%s</td></tr>\n'%(k,v)
                     html+='''</table></p>'''
 
-                else:
-                    code=404
-
             except Exception as e:
                 logging.exception(e)
                 code=500
@@ -394,14 +398,14 @@ class HDHR_handler(http.server.BaseHTTPRequestHandler):
             self.send(html,code=code)
 
     def html_start(self):
-        return '''
-<html><head>
+        return '''<html>
+    <head>
         <style>
             body{font-family:monospace}
             th{text-align:left}
         </style>
-</head>
-<body>
+    </head>
+    <body>
         <p><table><tr>
             <th><a href='/'>status</a>&nbsp;&nbsp;&nbsp;</th>
             <th><a href='/log'>log</a>&nbsp;&nbsp;&nbsp;</th>
