@@ -95,14 +95,15 @@ def config(config_file=None):
     return dict((k,globals()[k]) for k in ENV_VARS)
 
 def xtream_request(url,user,pw,action):
+    # xtream codes API requests
     r=requests.get(url+'/player_api.php',params={'username':user,'password':pw,'action':action})
     r.raise_for_status()
     return json.loads(r.text)
 
-# get server and account info
 def check_acct(url,user,pw,pri=0):
+    # get server and account info
+    info=None
     try:
-        info=None
         info=xtream_request(url,user,pw,'server_info')
         return (
             user, pw, pri, 
@@ -111,50 +112,45 @@ def check_acct(url,user,pw,pri=0):
             info
         )
     except Exception as e:
+        # if account is not valid info will not parse so return 0/0 slots available and raw info
         logging.warning('%s %s %s %s %s',url,user,pw,e,info)
-        return user, pw, pri, None, None, str(info), None, info
+        return user, pw, pri, 0, 0, str(info), None, info
 
 def refresh_accts(accounts):
-    refreshed={}
+    # check accounts and return map of source to accounts sorted by free slots
+    sources={}
     n=int(CHECK)
     for url,accts in accounts.items():
         if n:
             accts=random.sample(accts,min(n,len(accts)))
-        logging.info('refreshing %s accounts for %s',len(accts),url)
+        logging.info('refreshing %s',url)
         for a in accts:
-            refreshed.setdefault(url,[]).append(check_acct(url,*a[0:3]))
-            logging.debug(refreshed[url][-1][-1])
+            sources.setdefault(url,[]).append(check_acct(url,*a[0:3]))
+            logging.debug(sources[url][-1][-1])
             time.sleep(int(DELAY))
-    return refreshed
+        #sort accounts by used-max to put most free slots first
+        sources[url].sort(key=lambda a: a[3]-a[4])
+    return sources
 
-def select_acct(sources):
-    selected={}
-    for url,accts in sources.items():
-        #get accounts that are active
-        active=[a for a in accts if a[5].lower()=='active']
-        #sort by max-used to get most free slots at end
-        if active:
-            active.sort(key=lambda a: a[4]-a[3])
-            selected[url]=active[-1]
-    return selected #account from each source with most available connections
-
-def select_source(selected,source_list):
-    #return url, acct data of source with highest priority, most free slots
-    #filter to this stream's sources with free slots
-    selected_sources=list((s,a) for s,a in selected.items() if s in source_list and a[4]-a[3] > 0) 
-    #sort by most free slots, then by priority to always prefer higher prioirty source
-    sorted_sources=sorted(
-        sorted(selected_sources, key=lambda s: s[1][4]-s[1][3]),  
-        key=lambda s: int(s[1][2]), reverse=True)
-    logging.debug('selected %s %s',*sorted_sources[-1])
-    return sorted_sources[-1]
+def select_sources(sources,source_list=None,check_free=True):
+    # return list of url, acct by highest priority and most free slots
+    # first account per source will be most free slots, so filter to source in list if any free slots
+    # then sort by priority,used-max to prefer higher priority sources even if less free slots
+    selected_sources=sorted(
+        ( (source,accts[0]) for source,accts in sources.items() \
+            if (not source_list or source in source_list) and (not check_free or accts[0][4]-accts[0][3] > 0) ),
+        key=lambda s:(int(s[1][2]),s[1][3]-s[1][4])
+    )
+    logging.debug('selected %s',selected_sources)
+    return selected_sources
     
-def fetch_lineup(selected):
+def fetch_lineup(selected_sources):
+    # fetch a lineup from each source, filter/modify channel names, and merge linueps
     global GROUPS_INCLUDE,GROUPS_STARTSWITH,GROUPS_ENDSWITH,GROUPS_EXCLUDE,STREAMS_INCLUDE,STREAMS_EXCLUDE,SOURCE_GROUPS
     lineup={}
     SOURCE_GROUPS={}
-    for url,acct in selected.items():
-        user,pw=acct[:2]
+    for (url,acct) in selected_sources:
+        user,pw=acct[:2] 
         #fetch from selected source account
         groups_in=dict( (e['category_id'],upper(e['category_name'])) for e in xtream_request(url,user,pw,'get_live_categories') )
         groups=dict( (i,n) for i,n in groups_in.items() \
@@ -199,8 +195,8 @@ def fetch_lineup(selected):
     logging.info('lineup has %s streams',len(lineup))
     return lineup
 
-def scan(config_file):
-    global ACCOUNTS
+def rescan(config_file):
+    global ACCOUNTS,SOURCES,LINEUP 
     sources={}
     try:
         logging.info('reloading %s',config_file)
@@ -216,13 +212,15 @@ def scan(config_file):
                         pri=l[3] if len(l)>3 else 0
                         ACCOUNTS.setdefault(url,[]).append((user,pw,pri))
                     except: pass
-        #refresh account status
-        sources=refresh_accts(ACCOUNTS)
-        selected=select_acct(sources)
-        return fetch_lineup(selected),selected,sources
+        #refresh account status and lineup
+        SOURCES=refresh_accts(ACCOUNTS)
+        selected=select_sources(SOURCES,check_free=False)
+        LINEUP=fetch_lineup(selected)
+        return LINEUP,selected,SOURCES
     except Exception as e:
         logging.exception(e)
         logging.warning('no usable accounts: %s',e)
+        LINEUP=None
         return None,None,sources
 
 class HDHR_handler(http.server.BaseHTTPRequestHandler):
@@ -235,7 +233,7 @@ class HDHR_handler(http.server.BaseHTTPRequestHandler):
         self.wfile.write(html.encode())
 
     def do_POST(self):
-        global CONFIG_FILE,SOURCES,LINEUP
+        global CONFIG_FILE
         # get POST data 
         l=int(self.headers.get('content-length',0))
         key,val=(unquote(self.rfile.read(l).decode().replace('+',' ')).split('=',1)) if l else (None,None)
@@ -258,10 +256,10 @@ class HDHR_handler(http.server.BaseHTTPRequestHandler):
             self.send(str(e),code=500)
             return
         #reload config and lineups
-        config(CONFIG_FILE)
-        LINEUP,selected,SOURCES=scan(CONFIG_FILE)
+        rescan(CONFIG_FILE)
         #respond like GET of posting page
         self.do_GET()
+        return
 
     def do_GET(self):
         global CONFIG_FILE,FORMAT,ACCOUNTS,SOURCES,LINEUP,PROCS,LOGQ,SOURCE_GROUPS
@@ -273,7 +271,11 @@ class HDHR_handler(http.server.BaseHTTPRequestHandler):
                 logging.info('%s stream %s'%(self.client_address,k))
                 l=LINEUP[k]
                 SOURCES=refresh_accts(ACCOUNTS)
-                source,a=select_source(select_acct(SOURCES),list(l['sources'].keys()))
+                try:
+                    (source,a)=select_sources(SOURCES,list(l['sources'].keys()))[0]
+                except:
+                    self.send('no source for %s' % k,code=503)
+                    return
                 url = FORMAT % (a[-1]['server_info']['url'].split('//')[-1].split('/')[0], 
                                                          a[-1]['server_info']['port'], a[0], a[1], 
                                                          l['sources'][source])
@@ -281,6 +283,7 @@ class HDHR_handler(http.server.BaseHTTPRequestHandler):
                     # send the URL to plex
                     logging.info('%s redirect to %s', self.client_address, url)
                     self.send(redirect=url)
+                    return
                 else:
                     # remux with ffmpeg
                     args = CMD % url
@@ -306,8 +309,10 @@ class HDHR_handler(http.server.BaseHTTPRequestHandler):
                     cmd.wait()
                     logging.info('%s pid %s stop (%d)', self.client_address, cmd.pid, cmd.returncode)
                     del PROCS[cmd.pid]
+                    return
             else:
-                self.send(stream,404)
+                self.send('%s not in lineup' % k,code=404)
+                return
 
         #serve HDHR data
         elif self.path=='/discover.json':
@@ -318,6 +323,7 @@ class HDHR_handler(http.server.BaseHTTPRequestHandler):
                 'BaseURL':'http://%s:%s'%(SERVER_IP,SERVER_PORT),
                 'LineupURL':'http://%s:%s/lineup.json'%(SERVER_IP,SERVER_PORT),
             }))
+            return
 
         elif self.path=='/lineup_status.json':
             self.send(json.dumps({
@@ -325,9 +331,11 @@ class HDHR_handler(http.server.BaseHTTPRequestHandler):
                 'ScanPossible':1,
                 'Source':'Cable'
             }))
+            return
 
         elif self.path=='/lineup.json':
             self.send(json.dumps(list(LINEUP.values())))
+            return
 
         #serve HTML pages
         else:
@@ -379,7 +387,7 @@ class HDHR_handler(http.server.BaseHTTPRequestHandler):
                         for url,accts in SOURCES.items():
                             html+='<tr><th colspan=7>%s</th><td>(%s streams)</td></tr>'%(url,
                             len(list(s for s in LINEUP.values() if url in s['sources'])) if LINEUP else '0')
-                            for a in sorted(accts, key=lambda a: a[4]-a[3], reverse=True):
+                            for a in accts:
                                 html+='<tr><td></td><td>%s</td><td>%s</td><td>%s</td><td>%s/%s</td><td>%s</td><td>%s</td></tr>\n'%a[:-1]
                         html+='''<tr><td><form method=post><input type=submit name=reload value=reload></form></td></tr></table></p>'''
                     html+='''<p><table>'''
@@ -394,8 +402,10 @@ class HDHR_handler(http.server.BaseHTTPRequestHandler):
 
             html+=self.html_end()
             self.send(html,code=code)
+            return
 
     def html_start(self):
+        global LINEUP
         return '''<html>
     <head>
         <style>
@@ -439,8 +449,9 @@ class LogQ(deque):
         self.append(item)
 
 def main(*args):
-    global CONFIG_FILE, LOGQ, SOURCES
+    global CONFIG_FILE, LOGQ
     CONFIG_FILE=args[0] if args else None
+    #init logging
     env=config(CONFIG_FILE)
     LOGQ=LogQ(maxlen=LOGDEPTH)
     logging.basicConfig(level=int(LOGLEVEL), 
@@ -448,8 +459,9 @@ def main(*args):
                         handlers=[logging.StreamHandler(),QueueHandler(LOGQ)])
     for k,v in env.items():
         logging.debug('%s=%s',k,v)
-    global LINEUP
-    LINEUP,selected,SOURCES = scan(CONFIG_FILE)
+    # do initial scan
+    rescan(CONFIG_FILE)
+    # start server
     httpd = http.server.ThreadingHTTPServer((SERVER_IP, int(SERVER_PORT)), HDHR_handler)
     logging.info('serving at http://%s:%s' % (SERVER_IP, SERVER_PORT))
     httpd.serve_forever()
