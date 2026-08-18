@@ -135,7 +135,6 @@ def select_acct(sources):
         #sort by max-used to get most free slots at end
         if active:
             active.sort(key=lambda a: a[4]-a[3])
-            logging.debug('%s: %s active',url,len(active))
             selected[url]=active[-1]
     return selected #account from each source with most available connections
 
@@ -147,6 +146,7 @@ def select_source(selected,source_list):
     sorted_sources=sorted(
         sorted(selected_sources, key=lambda s: s[1][4]-s[1][3]),  
         key=lambda s: int(s[1][2]), reverse=True)
+    logging.debug('selected %s %s',*sorted_sources[-1])
     return sorted_sources[-1]
     
 def fetch_lineup(selected):
@@ -154,7 +154,6 @@ def fetch_lineup(selected):
     lineup={}
     SOURCE_GROUPS={}
     for url,acct in selected.items():
-        logging.debug('selected %s', acct[-1])
         user,pw=acct[:2]
         #fetch from selected source account
         groups_in=dict( (e['category_id'],upper(e['category_name'])) for e in xtream_request(url,user,pw,'get_live_categories') )
@@ -275,7 +274,6 @@ class HDHR_handler(http.server.BaseHTTPRequestHandler):
                 l=LINEUP[k]
                 SOURCES=refresh_accts(ACCOUNTS)
                 source,a=select_source(select_acct(SOURCES),list(l['sources'].keys()))
-                logging.debug('selected %s', a[-1])
                 url = FORMAT % (a[-1]['server_info']['url'].split('//')[-1].split('/')[0], 
                                                          a[-1]['server_info']['port'], a[0], a[1], 
                                                          l['sources'][source])
