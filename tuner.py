@@ -199,7 +199,9 @@ def rescan(config_file):
     global ACCOUNTS,SOURCES,LINEUP 
     sources={}
     try:
+        #reload config 
         logging.info('reloading %s',config_file)
+        config(config_file)
         #load accounts from config
         ACCOUNTS={}
         with open(config_file) as f:
