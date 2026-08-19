@@ -375,7 +375,7 @@ class HDHR_handler(http.server.BaseHTTPRequestHandler):
                     html+='''</p>'''
 
                 # catch-all to serve status page
-                else: 
+                elif self.path == '/': 
                     if PROCS:
                         html+='''<p><table><tr><th>pid</th><th>client</th><th>command</th></tr>'''
                         for pid,args in PROCS.items():
@@ -397,11 +397,18 @@ class HDHR_handler(http.server.BaseHTTPRequestHandler):
                         html+='<tr><th>%s</th><td>%s</td></tr>\n'%(k,v)
                     html+='''</table></p>'''
 
+                #invalid route
+                else:
+                    self.send(self.path,code=400)
+                    return
+            
+            #output what we can
             except Exception as e:
                 logging.exception(e)
                 code=500
                 html+='\n'+str(e)
 
+            #alwwys add config editor
             html+=self.html_end()
             self.send(html,code=code)
             return
