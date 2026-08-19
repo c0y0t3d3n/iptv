@@ -1,4 +1,4 @@
-Tumer emulation proxy for Plex
+# IPTV Tuner proxy for Plex
 
 Plex can’t manage IPTV but has a very good EPG. This emulates a HDHR and is designed to proxy IPTV using Plex as the EPG source. It can filter and rename channels to match what the Plex guide data is expecting. When Plex tunes a channel, it will refresh the status of all accounts and choose the one with the most open slots.
 
