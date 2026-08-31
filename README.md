@@ -49,7 +49,7 @@ Server config (can set in config or environment):
 `CMD=` will override the command used to fetch and remux the stream. Whatever you use should accept a stream URL as `%s` and pipe to STDOUT.
 
 Plex currently has an issue with streams containing AAC audio (HE-AAC in particular) so you may want to try\
-`CMD=ffmpeg -hide_banner -loglevel error -user_agent tuner -i %s -c copy -c:a ac3 -copyts -f mpegts pipe:1`\
+`CMD=ffmpeg -hide_banner -loglevel error -i %s -c copy -c:a ac3 -copyts -f mpegts pipe:1`\
 to transcode all audio to AC3.
 
 ## iptv.py generates m3u playlists from xtream codes
@@ -58,5 +58,4 @@ to transcode all audio to AC3.
 `./iptv.py config_file` (to check accts)\
 `./iptv.py config_file m3u_file` (to check accts, write m3u for account with most open slots)
 
-
-
+Ê—≠ê'fgweÒ¶í"6S^ó†≠
