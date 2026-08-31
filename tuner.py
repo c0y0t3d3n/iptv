@@ -24,10 +24,10 @@ def upper(s):
         return s
 
 def config(config_file=None):
-    ENV_VARS=['SERVER_IP','SERVER_PORT','CMD','DELAY','DIRECT','GROUPS','STREAMS','RENAME','REPLACE','FORMAT','BUFFER','LOGLEVEL','TUNER_COUNT','UPPER','CHECK']
+    ENV_VARS=['SERVER_IP','SERVER_PORT','CMD','TIMEOUT','DELAY','DIRECT','GROUPS','STREAMS','RENAME','REPLACE','FORMAT','BUFFER','LOGLEVEL','TUNER_COUNT','UPPER','CHECK']
 
     #set defaults 
-    global SERVER_IP,SERVER_PORT,CMD,DELAY,DIRECT,GROUPS,STREAMS,RENAME,REPLACE,FORMAT,BUFFER,LOGLEVEL,LOGDEPTH,TUNER_COUNT,UPPER,CHECK
+    global SERVER_IP,SERVER_PORT,CMD,DELAY,DIRECT,GROUPS,STREAMS,RENAME,REPLACE,FORMAT,BUFFER,LOGLEVEL,LOGDEPTH,TUNER_COUNT,UPPER,CHECK,TIMEOUT
     LOGLEVEL=logging.INFO
     LOGDEPTH=100
 
@@ -39,6 +39,7 @@ def config(config_file=None):
 
     CMD='ffmpeg -hide_banner -loglevel error -i %s -c copy -copyts -f mpegts pipe:1'
 
+    TIMEOUT=None
     DELAY=0
     DIRECT=0
     CHECK=0
@@ -96,7 +97,9 @@ def config(config_file=None):
 
 def xtream_request(url,user,pw,action):
     # xtream codes API requests
-    r=requests.get(url+'/player_api.php',params={'username':user,'password':pw,'action':action})
+    r=requests.get(url+'/player_api.php',
+        params={'username':user,'password':pw,'action':action},
+        timeout=float(TIMEOUT) if TIMEOUT else None)
     r.raise_for_status()
     return json.loads(r.text)
 
