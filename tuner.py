@@ -134,11 +134,13 @@ def refresh_accts(accounts):
 
 def select_sources(sources,source_list=None,check_free=True):
     # return list of url, acct by highest priority and most free slots
-    # first account per source will be most free slots, so filter to source in list if any free slots
+    # first account per source will be most free slots, so filter to source in list if active and optinally any free slots
     # then sort by priority,used-max to prefer higher priority sources even if less free slots
     selected_sources=sorted(
         ( (source,accts[0]) for source,accts in sources.items() \
-            if (not source_list or source in source_list) and (not check_free or accts[0][4]-accts[0][3] > 0) ),
+            if (not source_list or source in source_list) \
+            and accts[0][5] == 'Active' \
+            and (not check_free or accts[0][4]-accts[0][3] > 0) ),
         key=lambda s:(int(s[1][2]),s[1][3]-s[1][4])
     )
     logging.debug('selected %s',selected_sources)
