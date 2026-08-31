@@ -37,7 +37,7 @@ def config(config_file=None):
     TUNER_COUNT=4
     UPPER=1
 
-    CMD='ffmpeg -hide_banner -loglevel error -user_agent tuner -i %s -c copy -copyts -f mpegts pipe:1'
+    CMD='ffmpeg -hide_banner -loglevel error -i %s -c copy -copyts -f mpegts pipe:1'
 
     DELAY=0
     DIRECT=0
