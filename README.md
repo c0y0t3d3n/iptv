@@ -1,6 +1,6 @@
 # IPTV Tuner proxy for Plex
 
-Plex can’t manage IPTV but has a very good EPG. This emulates a HDHR and is designed to proxy IPTV using Plex as the EPG source. It can filter and rename channels to match what the Plex guide data is expecting. When Plex tunes a channel, it will refresh the status of all accounts and choose the one with the most open slots.
+Plex can't manage IPTV but has a very good EPG. This emulates a HDHR and is designed to proxy IPTV using Plex as the EPG source. It can filter and rename channels to match what the Plex guide data is expecting. When Plex tunes a channel, it will refresh the status of all accounts and choose the one with the most open slots.
 
 If not all accounts have the same URL, the lineups from all providers are merged. This eliminates duplicate channels and chooses the least busy account across all if that channel is available from multiple sources. Make sure you have the filters set so channels have the same name across all providers.
 
@@ -58,4 +58,4 @@ to transcode all audio to AC3.
 `./iptv.py config_file` (to check accts)\
 `./iptv.py config_file m3u_file` (to check accts, write m3u for account with most open slots)
 
-�ѭ�'fgwe�"6S^���
+æÑ­'fgweñ¦’"6S^— ­
