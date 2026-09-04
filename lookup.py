@@ -2,6 +2,7 @@
 import sys
 import requests
 import json
+import re
 from html import unescape
 
 FETCH_URL='https://iptvlookup.com/'
@@ -20,6 +21,11 @@ def iptvlookup(url):
                 break
             elif payload is not None:
                 payload+=unescape(l)
+        if 'email-protection' in payload: # clever girl
+            ep=re.search('<.*>',payload).group(0).split('"')[5]
+            x=int(ep[0:2],16)
+            username=''.join([ chr(int(ep[i:i+2],16)^x) for i in range(2,len(ep),2) ])
+            payload=re.sub('<.*>',username,payload)
         j=json.loads(payload)
         return 'http://%s:%s %s %s' % (
             j['server_info']['url'],
