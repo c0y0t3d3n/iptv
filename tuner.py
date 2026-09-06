@@ -116,7 +116,7 @@ def check_acct(url,user,pw,pri=0):
         )
     except Exception as e:
         # if account is not valid info will not parse so return 0/0 slots available and raw info
-        logging.warning('%s %s %s %s %s',url,user,pw,e,info)
+        logging.warning('checking %s %s %s: %s %s',url,user,pw,e,info)
         return user, pw, pri, 0, 0, str(info), None, info
 
 def refresh_accts(accounts):
@@ -156,14 +156,18 @@ def fetch_lineup(selected_sources):
     SOURCE_GROUPS={}
     for (url,acct) in selected_sources:
         user,pw=acct[:2] 
-        #fetch from selected source account
-        groups_in=dict( (e['category_id'],upper(e['category_name'])) for e in xtream_request(url,user,pw,'get_live_categories') )
-        groups=dict( (i,n) for i,n in groups_in.items() \
-            if (not GROUPS) or any(re.search(p,n) for p in GROUPS) and not any(re.search(p,n) for p in GROUPS_EXCLUDE) )
-        logging.debug('%s groups: %s',url,list(groups.values()))
-        SOURCE_GROUPS[url]=groups.values()
-        streams_in=[s for s in xtream_request(url,user,pw,'get_live_streams') if s['category_id'] in groups \
-            or any(re.search(p,upper(s['name'])) for p in STREAMS) ]
+        try:
+            #fetch from selected source account
+            groups_in=dict( (e['category_id'],upper(e['category_name'])) for e in xtream_request(url,user,pw,'get_live_categories') )
+            groups=dict( (i,n) for i,n in groups_in.items() \
+                if (not GROUPS) or any(re.search(p,n) for p in GROUPS) and not any(re.search(p,n) for p in GROUPS_EXCLUDE) )
+            logging.debug('%s groups: %s',url,list(groups.values()))
+            SOURCE_GROUPS[url]=groups.values()
+            streams_in=[s for s in xtream_request(url,user,pw,'get_live_streams') if s['category_id'] in groups \
+                or any(re.search(p,upper(s['name'])) for p in STREAMS) ]
+        except Exception as e:
+            logging.warning('fetching %s %s %s: %s',url,user,pw,e)
+            continue
         #remove and rename streams
         streams=[]
         for s in streams_in:
