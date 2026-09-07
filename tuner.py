@@ -13,9 +13,11 @@ import random
 from logging.handlers import QueueHandler
 from collections import deque
 from urllib.parse import quote,unquote
+from threading import Lock
 
-global PROCS, LOGQ
+global PROCS, LOGQ, LOCK
 PROCS={}
+LOCK=Lock()
 
 def upper(s):
     if int(UPPER): 
@@ -116,7 +118,7 @@ def check_acct(url,user,pw,pri=0):
         )
     except Exception as e:
         # if account is not valid info will not parse so return 0/0 slots available and raw info
-        logging.warning('checking %s %s %s: %s %s',url,user,pw,e,info)
+        logging.warning('%s checking %s %s %s %s',e,url,user,pw,info)
         return user, pw, pri, 0, 0, str(info), None, info
 
 def refresh_accts(accounts):
@@ -166,7 +168,7 @@ def fetch_lineup(selected_sources):
             streams_in=[s for s in xtream_request(url,user,pw,'get_live_streams') if s['category_id'] in groups \
                 or any(re.search(p,upper(s['name'])) for p in STREAMS) ]
         except Exception as e:
-            logging.warning('fetching %s %s %s: %s',url,user,pw,e)
+            logging.warning('%s fetching %s %s %s',e,url,user,pw)
             continue
         #remove and rename streams
         streams=[]
@@ -244,36 +246,37 @@ class HDHR_handler(http.server.BaseHTTPRequestHandler):
         self.wfile.write(html.encode())
 
     def do_POST(self):
-        global CONFIG_FILE
-        # get POST data 
-        l=int(self.headers.get('content-length',0))
-        key,val=(unquote(self.rfile.read(l).decode().replace('+',' ')).split('=',1)) if l else (None,None)
-        try:
-            # config text was submitted
-            if key == 'config':
-                with open(CONFIG_FILE,'w') as f:
-                    f.write(val)
-                    logging.info('wrote %s',CONFIG_FILE) 
-            # url/hash was submitted
-            elif key == 'add':
-                from lookup import iptvlookup
-                info=iptvlookup(val)
-                if info:
-                    with open(CONFIG_FILE,'a') as f:
-                        f.write(info+'\n')
-                        logging.info('fetched %s, added %s to %s',val,info,CONFIG_FILE)     
-        except Exception as e:
-            logging.exception(e)
-            self.send(str(e),code=500)
-            return
-        #reload config and lineups
-        rescan(CONFIG_FILE)
+        global CONFIG_FILE, LOCK
+        with LOCK:
+            # get POST data 
+            l=int(self.headers.get('content-length',0))
+            key,val=(unquote(self.rfile.read(l).decode().replace('+',' ')).split('=',1)) if l else (None,None)
+            try:
+                # config text was submitted
+                if key == 'config':
+                    with open(CONFIG_FILE,'w') as f:
+                        f.write(val)
+                        logging.info('wrote %s',CONFIG_FILE) 
+                # url/hash was submitted
+                elif key == 'add':
+                    from lookup import iptvlookup
+                    info=iptvlookup(val)
+                    if info:
+                        with open(CONFIG_FILE,'a') as f:
+                            f.write(info+'\n')
+                            logging.info('fetched %s, added %s to %s',val,info,CONFIG_FILE)     
+            except Exception as e:
+                logging.exception(e)
+                self.send(str(e),code=500)
+                return
+            #reload config and lineups
+            rescan(CONFIG_FILE)
         #respond like GET of posting page
         self.do_GET()
         return
 
     def do_GET(self):
-        global CONFIG_FILE,FORMAT,ACCOUNTS,SOURCES,LINEUP,PROCS,LOGQ,SOURCE_GROUPS
+        global CONFIG_FILE,FORMAT,ACCOUNTS,SOURCES,LINEUP,PROCS,LOGQ,LOCK,SOURCE_GROUPS
 
         #serve streams
         if self.path.startswith('/stream/'):
@@ -281,7 +284,8 @@ class HDHR_handler(http.server.BaseHTTPRequestHandler):
             if LINEUP and k in LINEUP:
                 logging.info('%s stream %s'%(self.client_address,k))
                 l=LINEUP[k]
-                SOURCES=refresh_accts(ACCOUNTS)
+                with LOCK:
+                    SOURCES=refresh_accts(ACCOUNTS)
                 try:
                     (source,a)=select_sources(SOURCES,list(l['sources'].keys()))[0]
                 except:
@@ -392,7 +396,8 @@ class HDHR_handler(http.server.BaseHTTPRequestHandler):
                         html+='''
                         </table>
                     </p>'''
-                    env=config(CONFIG_FILE)
+                    with LOCK:
+                        env=config(CONFIG_FILE)
                     if SOURCES:
                         html+='''<p><table><tr><th></th><th>user</th><th>pass</th><th>priority</th><th colspan=2>status</th><th>expires</th></tr>'''
                         for url,accts in SOURCES.items():
