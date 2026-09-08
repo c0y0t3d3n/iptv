@@ -306,7 +306,7 @@ class HDHR_handler(http.server.BaseHTTPRequestHandler):
                     try:
                         cmd = subprocess.Popen(args.split(), shell=False, stdout=subprocess.PIPE)
                         logging.info('%s pid %s', self.client_address, cmd.pid)
-                        PROCS[cmd.pid]=(self.client_address,args)
+                        PROCS[cmd.pid]=(self.client_address,k,args)
                     except Exception as e:
                         logging.exception(e)
                         self.send(str(e),code=500)
@@ -390,9 +390,9 @@ class HDHR_handler(http.server.BaseHTTPRequestHandler):
                 # catch-all to serve status page
                 elif self.path == '/': 
                     if PROCS:
-                        html+='''<p><table><tr><th>pid</th><th>client</th><th>command</th></tr>'''
+                        html+='''<p><table><tr><th>pid</th><th>client</th><th>stream</th><th>command</th></tr>'''
                         for pid,args in PROCS.items():
-                            html+='<tr><td>%s</td><td>%s</td><td>%s</td></tr>\n'%(pid,*args)
+                            html+='<tr><td>%s</td><td>%s</td><td>%s</td><td>%s</td></tr>\n'%(pid,*args)
                         html+='''
                         </table>
                     </p>'''
