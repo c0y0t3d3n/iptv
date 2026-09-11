@@ -1,15 +1,6 @@
 services:
-    pms:
-        image: plexinc/pms-docker:latest
-        container_name: pms
-        restart: unless-stopped
-        network_mode: host 
-        volumes:
-            - ./pms:/config
-            - ./pms:/transcode
-            - YOUR_MEDIA_DIR:/data
     tuner:
-        image: nandyalu/python-ffmpeg
+        build: .
         container_name: tuner
         restart: unless-stopped
         network_mode: host
@@ -18,4 +9,5 @@ services:
         working_dir: /app
         command: python -m tuner tuner.cfg
         environment:
-            SERVER_IP: YOUR_IP_HERE
+          SERVER_IP: YOUR_IP_HERE
+          CMD: ffmpeg -hide_banner -loglevel error -i %s -c copy -c:a ac3 -copyts -f mpegts pipe:1

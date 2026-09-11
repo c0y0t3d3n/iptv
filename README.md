@@ -1,13 +1,13 @@
 # IPTV Tuner proxy for Plex
 
-Plex can't manage IPTV but has a very good EPG. This emulates a HDHR and is designed to proxy IPTV using Plex as the EPG source. It can filter and rename channels to match what the Plex guide data is expecting. When Plex tunes a channel, it will refresh the status of all accounts and choose the one with the most open slots.
+Plex can’t manage IPTV but has a very good EPG. This emulates a HDHR and is designed to proxy IPTV using Plex as the EPG source. It can filter and rename channels to match what the Plex guide data is expecting. When Plex tunes a channel, it will refresh the status of all accounts and choose the one with the most open slots.
 
 If not all accounts have the same URL, the lineups from all providers are merged. This eliminates duplicate channels and chooses the least busy account across all if that channel is available from multiple sources. Make sure you have the filters set so channels have the same name across all providers.
 
 ## Getting started
-A docker-compose.yaml to spin up Plex and tuner containers is included, modify as needed.
+A `docker-compose.yaml` and `Dockerfile` to build/run a tuner container is included. Make sure you set `SERVER_IP` in `docker-compose.yaml`.
 
-You need a tuner.cfg with filters and xtream codes. A sample with working accounts and some generic filters is included.
+You will need a `tuner.cfg` with filters and xtream codes. A sample with working accounts and some generic filters is included.
 
 To add the tuner to Plex you need to manually enter the SERVER_IP:SERVER_PORT and it should appear. When you rescan channels in Plex it reloads the config and fetches lineups. Once you have the group and channel name filters set properly Plex should be able to auto map most of them to one of your local cable/satellite provider lineups. Any manual mappings you do should stick even if you change IPTV providers, as long as you adjust the filters.
 
@@ -58,4 +58,3 @@ to transcode all audio to AC3.
 `./iptv.py config_file` (to check accts)\
 `./iptv.py config_file m3u_file` (to check accts, write m3u for account with most open slots)
 
-æÑ­'fgweñ¦’"6S^— ­
