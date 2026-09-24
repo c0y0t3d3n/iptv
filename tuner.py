@@ -161,10 +161,11 @@ def fetch_lineup(selected_sources):
         try:
             #fetch from selected source account
             groups_in=dict( (e['category_id'],upper(e['category_name'])) for e in xtream_request(url,user,pw,'get_live_categories') )
+            SOURCE_GROUPS[url]=dict( (n,False) for n in groups_in.values() )
+            #select groups by filters
             groups=dict( (i,n) for i,n in groups_in.items() \
                 if (not GROUPS) or any(re.search(p,n) for p in GROUPS) and not any(re.search(p,n) for p in GROUPS_EXCLUDE) )
-            logging.debug('%s groups: %s',url,list(groups.values()))
-            SOURCE_GROUPS[url]=groups.values()
+            SOURCE_GROUPS[url].update( (n,True) for n in groups.values() )
             streams_in=[s for s in xtream_request(url,user,pw,'get_live_streams') if s['category_id'] in groups \
                 or any(re.search(p,upper(s['name'])) for p in STREAMS) ]
         except Exception as e:
@@ -375,7 +376,7 @@ class HDHR_handler(http.server.BaseHTTPRequestHandler):
                         for s,sg in SOURCE_GROUPS.items():
                             html+='<tr><th>%s</th><td>%s</td></tr>'%(
                                 s,
-                                ','.join('<a href="#%s">%s</a>'%(quote(g),g) for g in sorted(sg))
+                                ','.join('<a href="#%s">%s</a>'%(quote(g),g) if e else g for g,e in sorted(sg.items()))
                             )
                     html+='''</table></p>'''
 
