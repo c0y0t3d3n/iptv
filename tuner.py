@@ -184,7 +184,7 @@ def fetch_lineup(selected_sources):
                     r=''
                 n=re.sub(p,r,n)
             streams.append([n,s['stream_id'],groups_in[s['category_id']]])
-        #replace channels if pattern_+channel exists
+        #replace channels without pattern if channel with pattern exists
         for p in REPLACE:
             replaced=set()
             replaced.update(re.sub(p,'',s[0]) for s in streams if re.search(p,s[0]))
@@ -193,10 +193,14 @@ def fetch_lineup(selected_sources):
             #rename name+pattern to name to replace channel
             for s in streams:
                 s[0]=re.sub(p,'',s[0])
+        #strip any remaining leading/trailing whitespace
+        for s in streams:
+            s[0]=s[0].strip()
         logging.info('%s %s streams',url,len(streams))
         # build lineup
         for s in streams:
             k=quote(s[0])
+            #create/update lineup channel with stream ID from this source
             lineup.setdefault(k, {
                                 'GuideName':s[0], 
                                 'GuideNumber':s[0], 
