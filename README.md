@@ -7,13 +7,13 @@ If not all accounts have the same URL, the lineups from all providers are merged
 ## Getting started
 A `docker-compose.yaml` and `Dockerfile` to build/run a tuner container is included. Make sure you set `SERVER_IP` in `docker-compose.yaml`.
 
-You will need a `tuner.cfg` with filters and xtream codes. A sample with working accounts and some generic filters is included.
-
 To add the tuner to Plex you need to manually enter the SERVER_IP:SERVER_PORT and it should appear. When you rescan channels in Plex it reloads the config and fetches lineups. Once you have the group and channel name filters set properly Plex should be able to auto map most of them to one of your local cable/satellite provider lineups. Any manual mappings you do should stick even if you change IPTV providers, as long as you adjust the filters.
 
-Visit `http://SERVER_IP:SERVER_PORT/` for status, lineup with stream links, logs, and to edit the config. In the lineup the letters before each stream link represent the source(s) providing that channel.
+Visit `http://SERVER_IP:SERVER_PORT/` for status, lineup with stream links, logs, and to edit the config.
 
-There is a list of groups provided by each source and a basic filter builder at the bottom of the lineup page. Choose a group to add from the dropdown or enter a pattern to match. Checkboxes select only matching at start or end of name; select both for exact match. You can also enter patterns to include or exclude streams by name, rename streams, and replace duplicates.
+Below the config editor is a link to IPTVLookup and an import field. Paste the URL of an IPTVLookup account details page and hit 'add account' to import it.
+
+In the lineup the letters before each stream link represent the source(s) providing that channel. There is a list of groups provided by each source and a basic filter builder at the bottom of the lineup page. Choose a group to add from the dropdown or enter a pattern to match. Checkboxes select only matching at start or end of name; select both for exact match. You can also enter patterns to include or exclude streams by name, rename streams, and replace duplicates.
 
 ## Config file entries
 Keys are case-insensitive. `key+=...` will extend list of values for the key.
@@ -37,8 +37,6 @@ Put xtream codes in config file as:
 
 PRI is optional and defaults to 0. Lower number is higher priority and will be preferred unless full.\
 If you have a large number of accounts for a source, you probablty do not want to hit all of them every time. Set `CHECK=n` to randomly select `n` accounts per source to check.
-
-Paste an iptvlookup.com URL into the field below the config and hit 'add account' to fetch the account info and add it to the config.
 
 # Usage
 ## tuner.py emulates a HDHomeRun tuner
