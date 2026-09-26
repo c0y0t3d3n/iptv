@@ -163,8 +163,7 @@ def fetch_lineup(selected_sources):
             groups_in=dict( (e['category_id'],upper(e['category_name'])) for e in xtream_request(url,user,pw,'get_live_categories') )
             SOURCE_GROUPS[url]=dict( (n,False) for n in groups_in.values() )
             #select groups by filters
-            groups=dict( (i,n) for i,n in groups_in.items() \
-                if (not GROUPS) or any(re.search(p,n) for p in GROUPS) and not any(re.search(p,n) for p in GROUPS_EXCLUDE) )
+            groups=dict( (i,n) for i,n in groups_in.items() if any(re.search(p,n) for p in GROUPS) and not any(re.search(p,n) for p in GROUPS_EXCLUDE) )
             SOURCE_GROUPS[url].update( (n,True) for n in groups.values() )
             streams_in=[s for s in xtream_request(url,user,pw,'get_live_streams') if s['category_id'] in groups \
                 or any(re.search(p,upper(s['name'])) for p in STREAMS) ]
@@ -250,30 +249,64 @@ class HDHR_handler(http.server.BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(html.encode())
 
+    def add_filter(self,filter_type,filter_text,rename_to=None,start=False,end=False,exclude=False,comment=''):
+        global CONFIG_FILE
+        #read exiting config, if this type of filter is in there we need to make it type+=value, not type=value
+        with open(CONFIG_FILE) as f:
+            lines=f.readlines()
+        if any(l.startswith(filter_type) for l in lines):
+            filter_type+='+'
+        if start:
+            filter_text='^'+filter_text
+        if end:
+            filter_text+='$'
+        if rename_to:
+            filter_text+='='+rename_to
+        if exclude:
+            filter_text='!'+filter_text
+        with open(CONFIG_FILE,'a') as f:
+            l=filter_type+'='+filter_text+'#'+comment
+            f.write(l+'\n')
+            logging.info('added %s to %s',l,CONFIG_FILE)
+
     def do_POST(self):
         global CONFIG_FILE, LOCK
         with LOCK:
             # get POST data 
             l=int(self.headers.get('content-length',0))
-            key,val=(unquote(self.rfile.read(l).decode().replace('+',' ')).split('=',1)) if l else (None,None)
-            try:
-                # config text was submitted
-                if key == 'config':
-                    with open(CONFIG_FILE,'w') as f:
-                        f.write(val)
-                        logging.info('wrote %s',CONFIG_FILE) 
-                # url/hash was submitted
-                elif key == 'add':
-                    from lookup import iptvlookup
-                    info=iptvlookup(val)
-                    if info:
-                        with open(CONFIG_FILE,'a') as f:
-                            f.write(info+'\n')
-                            logging.info('fetched %s, added %s to %s',val,info,CONFIG_FILE)     
-            except Exception as e:
-                logging.exception(e)
-                self.send(str(e),code=500)
-                return
+            body=self.rfile.read(l)
+            params=dict( unquote(p.replace('+',' ')).split('=',1) \
+                if p else (None,None) \
+                for p in body.decode().split('&'))
+            for key,val in params.items():
+                try:
+                    if val:
+                        # fitler params were submitted
+                        if key == 'group':
+                            self.add_filter('groups',val,start='group_start' in params,end='group_end' in params,comment=params['comment'])
+                        if key == 'stream':
+                            self.add_filter('streams',val,start='stream_start' in params,end='stream_end' in params,exclude='stream_exclude' in params,comment=params['comment'])
+                        if key == 'rename':
+                            self.add_filter('rename',val,start='rename_start' in params,end='rename_end' in params,rename_to=params['rename_to'],comment=params['comment'])
+                        if key == 'replace':
+                            self.add_filter('replace',val,start='replace_start' in params,end='replace_end' in params,comment=params['comment'])
+                    # config text was submitted
+                    if key == 'config':
+                        with open(CONFIG_FILE,'w') as f:
+                            f.write(val)
+                            logging.info('wrote %s',CONFIG_FILE) 
+                    # url/hash was submitted
+                    if key == 'add':
+                        from lookup import iptvlookup
+                        info=iptvlookup(val)
+                        if info:
+                            with open(CONFIG_FILE,'a') as f:
+                                f.write(info+'\n')
+                                logging.info('fetched %s, added %s to %s',val,info,CONFIG_FILE)     
+                except Exception as e:
+                    logging.exception(e)
+                    self.send(str(e),code=500)
+                    return
             #reload config and lineups
             rescan(CONFIG_FILE)
         #respond like GET of posting page
@@ -376,14 +409,24 @@ class HDHR_handler(http.server.BaseHTTPRequestHandler):
                                     l['URL'],
                                     l['GuideName']
                                 )
-                        html+='''</table></p>\n <p><table>'''
-                        for s,sg in SOURCE_GROUPS.items():
-                            html+='<tr><th>%s</th><td>%s</td></tr>'%(
-                                s,
-                                ','.join('<a href="#%s">%s</a>'%(quote(g),g) if e else g for g,e in sorted(sg.items()))
-                            )
+                        html+='''</table></p>'''
+                    html+='''<p><table>'''
+                    for s,sg in SOURCE_GROUPS.items():
+                        html+='<tr><th>%s</th><td>%s</td></tr>'%(
+                            s,
+                            ','.join('<a href="#%s">%s</a>'%(quote(g),g) if e else g for g,e in sorted(sg.items()))
+                        )
                     html+='''</table></p>'''
-
+                    # filter builder
+                    html+='''<form method=post><p><table>
+                    <tr><th>group:</th><td><input type=checkbox name=group_start>start</td><td><input type=text name=group></td><td><input type=checkbox name=group_end>end</td></tr>
+                    <tr><th>streams:</th><td><input type=checkbox name=stream_start>start</td><td><input type=text name=stream></td><td><input type=checkbox name=stream_end>end</td>
+                    <td><input type=checkbox name=stream_exclude>exclude</td></tr>
+                    <tr><th>rename:</th><td><input type=checkbox name=rename_start>start</td><td><input type=text name=rename></td><td><input type=checkbox name=rename_end>end</td>
+                    <td> to <input type=text name=rename_to></td></tr>
+                    <tr><th>replace:</th><td><input type=checkbox name=replace_start>start</td><td><input type=text name=replace></td><td><input type=checkbox name=replace_end>end</td></tr>
+                    <tr><th>comment:</th><td colspan=3><input type=text size=40 name=comment></td><td><input type=submit value="add filter"></tr>
+                    </table></p></form>'''
                 #serve logs
                 elif self.path.startswith('/log'): 
                     html=self.html_start()
