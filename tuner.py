@@ -418,14 +418,18 @@ class HDHR_handler(http.server.BaseHTTPRequestHandler):
                         )
                     html+='''</table></p>'''
                     # filter builder
+                    html+='''<datalist id=group-select>'''
+                    for s,sg in SOURCE_GROUPS.items():
+                        html+='\n'.join('<option value="%s">'%g for g in sorted(sg.keys()))
+                    html+='''</datalist>'''
                     html+='''<form method=post><p><table>
-                    <tr><th>group:</th><td><input type=checkbox name=group_start>start</td><td><input type=text name=group></td><td><input type=checkbox name=group_end>end</td></tr>
-                    <tr><th>streams:</th><td><input type=checkbox name=stream_start>start</td><td><input type=text name=stream></td><td><input type=checkbox name=stream_end>end</td>
-                    <td><input type=checkbox name=stream_exclude>exclude</td></tr>
-                    <tr><th>rename:</th><td><input type=checkbox name=rename_start>start</td><td><input type=text name=rename></td><td><input type=checkbox name=rename_end>end</td>
-                    <td> to <input type=text name=rename_to></td></tr>
-                    <tr><th>replace:</th><td><input type=checkbox name=replace_start>start</td><td><input type=text name=replace></td><td><input type=checkbox name=replace_end>end</td></tr>
-                    <tr><th>comment:</th><td colspan=3><input type=text size=40 name=comment></td><td><input type=submit value="add filter"></tr>
+                    <tr><th>group:</th><td><input type=checkbox title='match at start' name=group_start><input type=text size=30 name=group list=group-select><input type=checkbox title='match at end' name=group_end></td></tr>
+                    <tr><th>streams:</th><td><input type=checkbox title='match at start' name=stream_start><input type=text size=30 name=stream><input type=checkbox title='match at end' name=stream_end></td>
+                    <td><input type=checkbox title='exclude matching streams' name=stream_exclude>exclude</td></tr>
+                    <tr><th>rename:</th><td><input type=checkbox title='match at start' name=rename_start><input type=text size=30 title='remove matching text from name' name=rename><input type=checkbox title='match at end' name=rename_end></td>
+                    <td> to <input type=text title='replace matching text with' name=rename_to></td></tr>
+                    <tr><th>replace:</th><td><input type=checkbox title='match at start' name=replace_start><input type=text title='if channel matching pattern exists, replace channels matching name without pattern' size=30 name=replace><input type=checkbox title='match at end' name=replace_end></td></tr>
+                    <tr><th>comment:</th><td><input type=text size=35 name=comment></td><td><input type=submit value="add filter"></tr>
                     </table></p></form>'''
                 #serve logs
                 elif self.path.startswith('/log'): 
