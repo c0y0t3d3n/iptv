@@ -15,7 +15,7 @@ from collections import deque
 from urllib.parse import quote,unquote
 from threading import Lock
 
-global PROCS, LOGQ, LOCK
+global GROUPS_CACHE, STREAMS_CACHE, PROCS, LOGQ, LOCK
 PROCS={}
 LOCK=Lock()
 
@@ -89,7 +89,6 @@ def config(config_file=None):
     # regex patterns to strip or replace in channel names. ^startwith, endswith$, or anywhere if no modifier
     # pattern=string will replace pattern with string
     RENAME=[r for r in upper(RENAME).split(',') if r]
-    RENAME.append(',') #plex does not like commas in channel names
     # replace any channels with base name if a channel matching regex exists 
     # example: REPLACE=' LHD$' will rename 'ABC LHD' to 'ABC', removing any STREAMS named 'ABC', but only if 'ABC LHD' exists.
     REPLACE=[r for r in upper(REPLACE).split(',') if r]
@@ -153,23 +152,34 @@ def select_sources(sources,source_list=None,check_free=True):
     
 def fetch_lineup(selected_sources):
     # fetch a lineup from each source, filter/modify channel names, and merge linueps
-    global GROUPS_INCLUDE,GROUPS_STARTSWITH,GROUPS_ENDSWITH,GROUPS_EXCLUDE,STREAMS_INCLUDE,STREAMS_EXCLUDE,SOURCE_GROUPS
-    lineup={}
-    SOURCE_GROUPS={}
+    global GROUPS_CACHE,STREAMS_CACHE
+    GROUPS_CACHE={}
+    STREAMS_CACHE={}
     for (url,acct) in selected_sources:
+        logging.info('fetching %s',url)
         user,pw=acct[:2] 
         try:
-            #fetch from selected source account
-            groups_in=dict( (e['category_id'],upper(e['category_name'])) for e in xtream_request(url,user,pw,'get_live_categories') )
-            SOURCE_GROUPS[url]=dict( (n,False) for n in groups_in.values() )
-            #select groups by filters
-            groups=dict( (i,n) for i,n in groups_in.items() if any(re.search(p,n) for p in GROUPS) and not any(re.search(p,n) for p in GROUPS_EXCLUDE) )
-            SOURCE_GROUPS[url].update( (n,True) for n in groups.values() )
-            streams_in=[s for s in xtream_request(url,user,pw,'get_live_streams') if s['category_id'] in groups \
-                or any(re.search(p,upper(s['name'])) for p in STREAMS) ]
+            #fetch from selected source account, strip commas as plex does not like them and we can't filter on them
+            GROUPS_CACHE[url]=dict( (e['category_id'],upper(e['category_name'].replace(',',''))) for e in xtream_request(url,user,pw,'get_live_categories') )
+            streams=STREAMS_CACHE.setdefault(url,[])
+            for s in xtream_request(url,user,pw,'get_live_streams'):
+                s['name']=upper(s['name'].replace(',',''))
+                streams.append(s)
         except Exception as e:
             logging.warning('%s fetching %s %s %s',e,url,user,pw)
             continue
+
+def build_lineup():
+    global SOURCE_GROUPS
+    lineup={}
+    SOURCE_GROUPS={}
+    for url in GROUPS_CACHE.keys():
+        SOURCE_GROUPS[url]=dict( (n,False) for n in GROUPS_CACHE[url].values() )
+        #select groups by filters
+        groups=dict( (i,n) for i,n in GROUPS_CACHE[url].items() if any(re.search(p,n) for p in GROUPS) and not any(re.search(p,n) for p in GROUPS_EXCLUDE) )
+        SOURCE_GROUPS[url].update( (n,True) for n in groups.values() )
+        #select streams by group or filter
+        streams_in=[s for s in STREAMS_CACHE[url] if s['category_id'] in groups or any(re.search(p,upper(s['name'])) for p in STREAMS) ]
         #remove and rename streams
         streams=[]
         for s in streams_in:
@@ -182,7 +192,7 @@ def fetch_lineup(selected_sources):
                 else:
                     r=''
                 n=re.sub(p,r,n)
-            streams.append([n,s['stream_id'],groups_in[s['category_id']]])
+            streams.append([n,s['stream_id'],GROUPS_CACHE[url][s['category_id']]])
         #replace channels without pattern if channel with pattern exists
         for p in REPLACE:
             replaced=set()
@@ -210,9 +220,8 @@ def fetch_lineup(selected_sources):
     logging.info('lineup has %s streams',len(lineup))
     return lineup
 
-def rescan(config_file):
+def rescan(config_file,fetch=True):
     global ACCOUNTS,SOURCES,LINEUP 
-    sources={}
     try:
         #reload config 
         logging.info('reloading %s',config_file)
@@ -230,15 +239,20 @@ def rescan(config_file):
                         ACCOUNTS.setdefault(url,[]).append((user,pw,pri))
                     except: pass
         #refresh account status and lineup
-        SOURCES=refresh_accts(ACCOUNTS)
-        selected=select_sources(SOURCES,check_free=False)
-        LINEUP=fetch_lineup(selected)
+        if fetch:
+            SOURCES=refresh_accts(ACCOUNTS)
+            selected=select_sources(SOURCES,check_free=False)
+            fetch_lineup(selected)
+        else:
+            selected=None
+        #build lineup
+        LINEUP=build_lineup()
         return LINEUP,selected,SOURCES
     except Exception as e:
         logging.exception(e)
         logging.warning('no usable accounts: %s',e)
         LINEUP=None
-        return None,None,sources
+        return None,None,SOURCES
 
 class HDHR_handler(http.server.BaseHTTPRequestHandler):
     # emulate a HDHR
@@ -272,6 +286,8 @@ class HDHR_handler(http.server.BaseHTTPRequestHandler):
     def do_POST(self):
         global CONFIG_FILE, LOCK
         with LOCK:
+            # fetch account status and lineup on account add or reload request. Will be set to False if config edit to speed up response time
+            fetch=True 
             # get POST data 
             l=int(self.headers.get('content-length',0))
             body=self.rfile.read(l)
@@ -283,19 +299,20 @@ class HDHR_handler(http.server.BaseHTTPRequestHandler):
                     if val:
                         # fitler params were submitted
                         if key == 'group':
-                            self.add_filter('groups',val,start='group_start' in params,end='group_end' in params,comment=params['comment'])
+                            fetch=self.add_filter('groups',val,start='group_start' in params,end='group_end' in params,comment=params['comment'])
                         if key == 'stream':
-                            self.add_filter('streams',val,start='stream_start' in params,end='stream_end' in params,exclude='stream_exclude' in params,comment=params['comment'])
+                            fetch=self.add_filter('streams',val,start='stream_start' in params,end='stream_end' in params,exclude='stream_exclude' in params,comment=params['comment'])
                         if key == 'rename':
-                            self.add_filter('rename',val,start='rename_start' in params,end='rename_end' in params,rename_to=params['rename_to'],comment=params['comment'])
+                            fetch=self.add_filter('rename',val,start='rename_start' in params,end='rename_end' in params,rename_to=params['rename_to'],comment=params['comment'])
                         if key == 'replace':
-                            self.add_filter('replace',val,start='replace_start' in params,end='replace_end' in params,comment=params['comment'])
+                            fetch=self.add_filter('replace',val,start='replace_start' in params,end='replace_end' in params,comment=params['comment'])
                     # config text was submitted
                     if key == 'config':
+                        fetch=False
                         with open(CONFIG_FILE,'w') as f:
                             f.write(val)
                             logging.info('wrote %s',CONFIG_FILE) 
-                    # url/hash was submitted
+                    # url/hash was submitted, add account and rescan
                     if key == 'add':
                         from lookup import iptvlookup
                         info=iptvlookup(val)
@@ -307,8 +324,8 @@ class HDHR_handler(http.server.BaseHTTPRequestHandler):
                     logging.exception(e)
                     self.send(str(e),code=500)
                     return
-            #reload config and lineups
-            rescan(CONFIG_FILE)
+            #reload config, scan sources if fetch is True, rebuild lineup
+            rescan(CONFIG_FILE,fetch)
         #respond like GET of posting page
         self.do_GET()
         return
