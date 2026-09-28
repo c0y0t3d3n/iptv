@@ -80,6 +80,7 @@ def config(config_file=None):
 
     #parse config
     global GROUPS_EXCLUDE,STREAMS_EXCLUDE
+    ENV_VARS+=['GROUPS_EXCLUDE','STREAMS_EXCLUDE']
     # channel group regexes, !pattern to exclude
     GROUPS=upper(GROUPS).split(',')
     GROUPS_EXCLUDE=[f[1:] for f in GROUPS if f.startswith('!')]
