@@ -30,13 +30,17 @@ Example: `REPLACE= UHD$` will turn 'ABC UHD' into 'ABC', removing any streams na
 
 All matching allows multiple comma-separated values and is case-insensitive as all patterns and strings are by default uppercased. This generally makes filtering and merging easie but limits what regexes you can use. Set `UPPER=0` in config to disable uppercasing.
 
-## account list
+## Account list and scan options
 Put xtream codes in config file as:
 
 `URL USER PASS PRI`
 
-PRI is optional and defaults to 0. Lower number is higher priority and will be preferred unless full.\
-If you have a large number of accounts for a source, you probablty do not want to hit all of them every time. Set `CHECK=n` to randomly select `n` accounts per source to check.
+PRI is optional and defaults to 0. Lower number is higher priority and will be preferred unless full.
+
+If you have a large number of accounts for a source, you probablty do not want to scan all of them on every rescan. Set `CHECK=n` to randomly select `n` accounts per source to check.\
+You may want to avoid rescanning accounts on every tune request. Set `CACHE=s` to cache account status for `s` seconds.\
+Accounts will always be rescanned when the Reload button is pressed, Plex requests a scan, or a stream drops unexpectedly (as this indicates the selected account is likely full.)\
+Source lineups will always be cached to make tuning and editing filters faster. Lineups will only be fetched when the Reload button is pressed or Plex requests a scan.
 
 # Usage
 ## tuner.py emulates a HDHomeRun tuner

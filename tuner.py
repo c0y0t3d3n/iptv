@@ -26,10 +26,10 @@ def upper(s):
         return s
 
 def config(config_file=None):
-    ENV_VARS=['SERVER_IP','SERVER_PORT','CMD','TIMEOUT','DELAY','DIRECT','GROUPS','STREAMS','RENAME','REPLACE','FORMAT','BUFFER','LOGLEVEL','TUNER_COUNT','UPPER','CHECK']
+    ENV_VARS=['SERVER_IP','SERVER_PORT','CMD','TIMEOUT','DELAY','DIRECT','GROUPS','STREAMS','RENAME','REPLACE','FORMAT','BUFFER','LOGLEVEL','TUNER_COUNT','UPPER','CHECK','CACHE']
 
     #set defaults 
-    global SERVER_IP,SERVER_PORT,CMD,DELAY,DIRECT,GROUPS,STREAMS,RENAME,REPLACE,FORMAT,BUFFER,LOGLEVEL,LOGDEPTH,TUNER_COUNT,UPPER,CHECK,TIMEOUT
+    global SERVER_IP,SERVER_PORT,CMD,DELAY,DIRECT,GROUPS,STREAMS,RENAME,REPLACE,FORMAT,BUFFER,LOGLEVEL,LOGDEPTH,TUNER_COUNT,UPPER,CHECK,TIMEOUT,CACHE,LAST_REFRESH
     LOGLEVEL=logging.INFO
     LOGDEPTH=100
 
@@ -45,6 +45,8 @@ def config(config_file=None):
     DELAY=0
     DIRECT=0
     CHECK=0
+    CACHE=0
+    LAST_REFRESH=0
     FORMAT='http://%s:%s/%s/%s/%s'
     GROUPS=''
     RENAME=''
@@ -121,6 +123,7 @@ def check_acct(url,user,pw,pri=0):
         return user, pw, pri, 0, 0, str(info), None, info
 
 def refresh_accts(accounts):
+    global LAST_REFRESH
     # check accounts and return map of source to accounts sorted by free slots
     sources={}
     n=int(CHECK)
@@ -134,6 +137,7 @@ def refresh_accts(accounts):
             time.sleep(int(DELAY))
         #sort accounts by used-max to put most free slots first
         sources[url].sort(key=lambda a: a[3]-a[4])
+    LAST_REFRESH=time.time()
     return sources
 
 def select_sources(sources,source_list=None,check_free=True):
@@ -331,7 +335,7 @@ class HDHR_handler(http.server.BaseHTTPRequestHandler):
         return
 
     def do_GET(self):
-        global CONFIG_FILE,FORMAT,ACCOUNTS,SOURCES,LINEUP,PROCS,LOGQ,LOCK,SOURCE_GROUPS
+        global CONFIG_FILE,FORMAT,ACCOUNTS,SOURCES,LINEUP,PROCS,LOGQ,LOCK,SOURCE_GROUPS,LAST_REFRESH
 
         #serve streams
         if self.path.startswith('/stream/'):
@@ -340,7 +344,10 @@ class HDHR_handler(http.server.BaseHTTPRequestHandler):
                 logging.info('%s stream %s'%(self.client_address,k))
                 l=LINEUP[k]
                 with LOCK:
-                    SOURCES=refresh_accts(ACCOUNTS)
+                    if LAST_REFRESH and LAST_REFRESH + int(CACHE) > time.time():
+                        logging.debug('cached for %ss',time.time()-LAST_REFRESH)
+                    else:
+                        SOURCES=refresh_accts(ACCOUNTS)
                 try:
                     (source,a)=select_sources(SOURCES,list(l['sources'].keys()))[0]
                 except:
@@ -357,10 +364,10 @@ class HDHR_handler(http.server.BaseHTTPRequestHandler):
                 else:
                     # remux with ffmpeg
                     args = CMD % url
-                    logging.info('%s start %s', self.client_address, args)
+                    logging.info('%s starting %s', self.client_address, args)
                     try:
                         cmd = subprocess.Popen(args.split(), shell=False, stdout=subprocess.PIPE)
-                        logging.info('%s pid %s', self.client_address, cmd.pid)
+                        logging.info('%s pid %s started', self.client_address, cmd.pid)
                         PROCS[cmd.pid]=(self.client_address,k,args)
                     except Exception as e:
                         logging.exception(e)
@@ -370,13 +377,18 @@ class HDHR_handler(http.server.BaseHTTPRequestHandler):
                     try:
                         while cmd.poll() is None: #cmd exited
                             data = cmd.stdout.read(int(BUFFER))
-                            if not data: break # cmd exited
+                            if not data: # cmd exited, source dropped the stream
+                                break
                             self.wfile.write(data)
-                    except BrokenPipeError: pass # plex disconnected 
+                        # cmd exited likely source dropped the stream
+                        logging.warning('%s pid %s exited',self.client_address, cmd.pid)
+                        LAST_REFRESH=0 #invalidate cache as account may be full
+                    except BrokenPipeError: 
+                        logging.debug('%s pid %s disconnected',self.client_address, cmd.pid)
                     except Exception as e:
                         logging.exception(e)
-                    cmd.stdout.close() # will stop cmd
-                    cmd.wait()
+                    cmd.stdout.close() # stop cmd if running
+                    cmd.wait() # wait for exit
                     logging.info('%s pid %s stop (%d)', self.client_address, cmd.pid, cmd.returncode)
                     del PROCS[cmd.pid]
                     return
