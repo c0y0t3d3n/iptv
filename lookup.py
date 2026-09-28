@@ -7,7 +7,7 @@ from html import unescape
 
 FETCH_URL='https://iptvlookup.com/'
 
-def iptvlookup(url):
+def iptvlookup(url,expr=None):
     try:
         h = url.split('=')[-1] #might be full URL, get the hash
         r=requests.get(FETCH_URL,params={'data':h})
@@ -27,15 +27,18 @@ def iptvlookup(url):
             username=''.join([ chr(int(ep[i:i+2],16)^x) for i in range(2,len(ep),2) ])
             payload=re.sub('<.*>',username,payload)
         j=json.loads(payload)
-        return 'http://%s:%s %s %s' % (
-            j['server_info']['url'],
-            j['server_info']['port'],
-            j['user_info']['username'],
-            j['user_info']['password']
-        )
+        if not expr or eval(expr,{},j['user_info']):
+            return 'http://%s:%s %s %s' % (
+                j['server_info']['url'],
+                j['server_info']['port'],
+                j['user_info']['username'],
+                j['user_info']['password']
+            )
     except Exception as e:
         print (e,r,file=sys.stderr)
 
 if __name__ == '__main__':
-    print (iptvlookup(sys.argv[1]))
+    r=iptvlookup(*sys.argv[1:])
+    if r: 
+        print (r)
         

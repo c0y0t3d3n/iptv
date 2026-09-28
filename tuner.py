@@ -437,7 +437,8 @@ class HDHR_handler(http.server.BaseHTTPRequestHandler):
                     # filter builder
                     html+='''<datalist id=group-select>'''
                     for s,sg in SOURCE_GROUPS.items():
-                        html+='\n'.join('<option value="%s">'%g for g in sorted(sg.keys()))
+                        #escape | character, this is common in group names and will break regexes
+                        html+='\n'.join('<option value="%s">'%g.replace('|','\|') for g in sorted(sg.keys()))
                     html+='''</datalist>'''
                     html+='''<form method=post><p><table>
                     <tr><th>group:</th><td><input type=checkbox title='match at start' name=group_start><input type=text size=30 name=group list=group-select><input type=checkbox title='match at end' name=group_end></td></tr>
