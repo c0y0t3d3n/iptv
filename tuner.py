@@ -482,7 +482,10 @@ class HDHR_handler(http.server.BaseHTTPRequestHandler):
                     with LOCK:
                         env=config(CONFIG_FILE)
                     if SOURCES:
-                        html+='''<p><table><tr><th></th><th>user</th><th>pass</th><th>priority</th><th colspan=2>status</th><th>expires</th></tr>'''
+                        html+='''<p><table><tr><th></th><th>user</th><th>pass</th><th>priority</th><th colspan=2>status</th><th>expires</th>'''
+                        if CACHE:
+                            html+='<td>(cached for %ss)</td>'%int(int(CACHE)+LAST_REFRESH-time.time())
+                        html+='''</tr>'''
                         for url,accts in SOURCES.items():
                             html+='<tr><th colspan=7>%s</th><td>(%s streams)</td></tr>'%(url,
                             len(list(s for s in LINEUP.values() if url in s['sources'])) if LINEUP else '0')

@@ -5,9 +5,9 @@ services:
         restart: unless-stopped
         network_mode: host
         volumes:
-            - ./:/app
+            - ./tuner.cfg:/app/tuner.cfg
         working_dir: /app
         command: python -m tuner tuner.cfg
         environment:
           SERVER_IP: YOUR_IP_HERE
-          CMD: ffmpeg -hide_banner -loglevel error -i %s -c copy -c:a ac3 -copyts -f mpegts pipe:1
+          CMD: ffmpeg -hide_banner -loglevel error -user_agent tuner -i %s -c copy -c:a ac3 -copyts -f mpegts pipe:1
