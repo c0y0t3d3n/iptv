@@ -136,8 +136,8 @@ def refresh_accts(accounts):
             sources.setdefault(url,[]).append(check_acct(url,*a[0:3]))
             logging.debug(sources[url][-1][-1])
             time.sleep(int(DELAY))
-        #sort accounts by used-max to put most free slots first
-        sources[url].sort(key=lambda a: a[3]-a[4])
+        #sort accounts by used-max to put active most free slots first
+        sources[url].sort(key=lambda a:(not a[5]=='Active', a[3]-a[4]))
     LAST_REFRESH=time.time()
     return sources
 
