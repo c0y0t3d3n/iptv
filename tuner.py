@@ -402,7 +402,7 @@ class HDHR_handler(http.server.BaseHTTPRequestHandler):
             self.send(json.dumps({
                 "DeviceID": "TUNER",
                 "FriendlyName": "Tuner",
-                "TunerCount": TUNER_COUNT,
+                "TunerCount": int(TUNER_COUNT),
                 'BaseURL':'http://%s:%s'%(SERVER_IP,SERVER_PORT),
                 'LineupURL':'http://%s:%s/lineup.json'%(SERVER_IP,SERVER_PORT),
             }))
@@ -484,7 +484,9 @@ class HDHR_handler(http.server.BaseHTTPRequestHandler):
                     if SOURCES:
                         html+='''<p><table><tr><th></th><th>user</th><th>pass</th><th>priority</th><th colspan=2>status</th><th>expires</th>'''
                         if CACHE:
-                            html+='<td>(cached for %ss)</td>'%int(int(CACHE)+LAST_REFRESH-time.time())
+                            t=int(int(CACHE)+LAST_REFRESH-time.time())
+                            if t > 0:
+                                html+='<td>(cached for %ss)</td>'%t
                         html+='''</tr>'''
                         for url,accts in SOURCES.items():
                             html+='<tr><th colspan=7>%s</th><td>(%s streams)</td></tr>'%(url,
