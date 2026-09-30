@@ -27,10 +27,10 @@ def upper(s):
         return s
 
 def config(config_file=None):
-    ENV_VARS=['SERVER_IP','SERVER_PORT','CMD','TIMEOUT','DELAY','DIRECT','GROUPS','STREAMS','RENAME','REPLACE','FORMAT','BUFFER','LOGLEVEL','TUNER_COUNT','UPPER','CHECK','CACHE']
+    ENV_VARS=['SERVER_IP','SERVER_PORT','CMD','TIMEOUT','DELAY','DIRECT','GROUPS','STREAMS','RENAME','REPLACE','FORMAT','BUFFER','LOGLEVEL','TUNER_COUNT','UPPER','CHECK','CACHE','MIN_SOURCES']
 
     #set defaults 
-    global SERVER_IP,SERVER_PORT,CMD,DELAY,DIRECT,GROUPS,STREAMS,RENAME,REPLACE,FORMAT,BUFFER,LOGLEVEL,LOGDEPTH,TUNER_COUNT,UPPER,CHECK,TIMEOUT,CACHE
+    global SERVER_IP,SERVER_PORT,CMD,DELAY,DIRECT,GROUPS,STREAMS,RENAME,REPLACE,FORMAT,BUFFER,LOGLEVEL,LOGDEPTH,TUNER_COUNT,UPPER,CHECK,TIMEOUT,CACHE,MIN_SOURCES
     LOGLEVEL=logging.INFO
     LOGDEPTH=100
 
@@ -47,6 +47,7 @@ def config(config_file=None):
     DIRECT=0
     CHECK=0
     CACHE=0
+    MIN_SOURCES=0
     FORMAT='http://%s:%s/%s/%s/%s'
     GROUPS=''
     RENAME=''
@@ -222,6 +223,8 @@ def build_lineup():
                                 'sources':{},
                                 'URL':'http://%s:%s/stream/%s'%(SERVER_IP,SERVER_PORT,k)
                             })['sources'][url]=s[1]
+    #if set, filter to channels with at least MIN_SOURCES
+    lineup=dict((k,l) for k,l in lineup.items() if len(lineup[k]['sources'])>=int(MIN_SOURCES))
     logging.info('lineup has %s streams',len(lineup))
     return lineup
 
