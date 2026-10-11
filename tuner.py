@@ -17,7 +17,7 @@ from threading import Lock
 from io import StringIO, BytesIO
 import xmltv
 
-global GROUPS_CACHE, STREAMS_CACHE, XMLTV_CACHE, PROCS, LOGQ, LOCK, LAST_REFRESH, LAST_RESCAN
+global XMLTV_CACHE, PROCS, LOCK, LAST_REFRESH, LAST_RESCAN
 PROCS={}
 LOCK=Lock()
 LAST_REFRESH=LAST_RESCAN=0
@@ -145,7 +145,7 @@ def refresh_accts(accounts):
         logging.info('refreshing %s',url)
         for a in accts:
             sources.setdefault(url,[]).append(check_acct(url,*a[0:3]))
-            logging.debug(sources[url][-1][-1])
+            logging.debug('refresh: %s',sources[url][-1][-1])
             time.sleep(int(DELAY))
         #sort accounts by used-max to put active most free slots first
         sources[url].sort(key=lambda a:(not a[5]=='Active', a[3]-a[4]))
@@ -163,7 +163,7 @@ def select_sources(sources,source_list=None,check_free=True):
             and (not check_free or accts[0][4]-accts[0][3] > 0) ),
         key=lambda s:(int(s[1][2]),s[1][3]-s[1][4])
     )
-    logging.debug('selected %s',selected_sources)
+    logging.debug('select: %s',selected_sources)
     return selected_sources
     
 def fetch_lineup(selected_sources):
@@ -181,6 +181,7 @@ def fetch_lineup(selected_sources):
             for s in xtream_request(url,user,pw,'get_live_streams'):
                 s['name']=upper(s['name'].replace(',',''))
                 streams.append(s)
+            logging.debug('fetch: %s %s groups %s streams',url,len(GROUPS_CACHE[url]),len(STREAMS_CACHE[url]))
         except Exception as e:
             logging.warning('%s fetching %s %s %s',e,url,user,pw)
             continue
@@ -189,21 +190,27 @@ def fetch_xmltv(selected_sources):
     cache={'data':{},'channels':{},'programs':[]}
     for url, acct in selected_sources:
         user,pw=acct[:2]
-        logging.info('fetching XMLTV from %s',url)
+        logging.info('XMLTV: fetching from %s',url)
         try:
             xmlin=StringIO(xtream_request(url,user,pw,path='xmltv.php',raw=True))
             xmlin.seek(0)
             cache['data'].update((k.replace('-','_'),v) for k,v in xmltv.read_data(xmlin).items())
+            n=0
             xmlin.seek(0)
             for c in xmltv.read_channels(xmlin):
                 if c['id']:
                     c['id'] = c['id'].lower()
                     cache['channels'][c['id']]=c
+                    n+=1
+            logging.debug('XMLTV: fetched %s channels from %s'%(n,url))
+            n=0
             xmlin.seek(0)
             for p in xmltv.read_programmes(xmlin):
                 if p['channel']:
                     p['channel'] = p['channel'].lower()
                     cache['programs'].append(p)
+                    n+=1
+            logging.debug('XMLTV: fetched %s programs from %s'%(n,url))
         except Exception as e:
             logging.warning('%s fetching XMLTV from %s %s %s',e,url,user,pw)
     return cache
@@ -282,8 +289,9 @@ def build_lineup():
         for s in streams:
             k=s[0].lower().replace(' ','_') 
             #auto mapping will merge channels with different names if the epg ids match
-            if int(AUTO_MAP) and k not in lineup:
-                k=ids.get(s[1],k)
+            if int(AUTO_MAP) and k not in lineup and s[1] in ids:
+                    logging.debug('lineup: %s mapped %s to %s',s[1],k,ids[s[1]])
+                    k=ids[s[1]]
             #map EPG IDs to key
             if s[1]:
                 ids[s[1]]=k
@@ -312,6 +320,7 @@ def build_lineup():
                 #output group ahd mark as output
                 ordered_lineup.update((k,l) for k,l in lineup.items() if l['GuideCategory']==g)
                 ordered_groups[g]=True
+                logging.debug('lineup: ordering group %s',g)
                 GROUP_ORDER.append(g)
     logging.info('lineup has %s streams',len(ordered_lineup))
     return ordered_lineup
@@ -396,6 +405,7 @@ class HDHR_handler(http.server.BaseHTTPRequestHandler):
             l=filter_type+'='+filter_text+'#'+comment
             f.write(l+'\n')
             logging.info('added %s to %s',l,CONFIG_FILE)
+        return False #we do not need to fetch every time we add a filter
 
     def do_POST(self):
         global CONFIG_FILE, LOCK
@@ -494,7 +504,7 @@ class HDHR_handler(http.server.BaseHTTPRequestHandler):
                         logging.warning('%s pid %s exited',self.client_address, cmd.pid)
                         LAST_REFRESH=0 #invalidate cache as account may be full
                     except BrokenPipeError: 
-                        logging.debug('%s pid %s disconnected',self.client_address, cmd.pid)
+                        logging.debug('stream: %s pid %s disconnected',self.client_address, cmd.pid)
                     except Exception as e:
                         logging.exception(e)
                     cmd.stdout.close() # stop cmd if running
@@ -526,18 +536,21 @@ class HDHR_handler(http.server.BaseHTTPRequestHandler):
             return
 
         elif self.path=='/lineup.json':
-            rescan(CONFIG_FILE) #will refresh if cache expired and rebuild lineup
+            with LOCK:
+                rescan(CONFIG_FILE) #will refresh if cache expired and rebuild lineup
             self.send(json.dumps(list(LINEUP.values())))
             return
 
         #serve M#U/XMLTV
         elif self.path=='/m3u':
-            rescan(CONFIG_FILE) #will refresh if cache expired and rebuild lineup
+            with LOCK:
+                rescan(CONFIG_FILE) #will refresh if cache expired and rebuild lineup
             self.send('\n'.join(generate_m3u(LINEUP)))
             return
 
         elif self.path=='/xmltv':
-            rescan(CONFIG_FILE,get_xmltv=True)
+            with LOCK:
+                rescan(CONFIG_FILE,get_xmltv=True)
             self.send(build_xmltv(XMLTV_CACHE))
             return 
 
