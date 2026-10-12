@@ -172,7 +172,7 @@ def fetch_lineup(selected_sources):
     GROUPS_CACHE={}
     STREAMS_CACHE={}
     for (url,acct) in selected_sources:
-        logging.info('fetching %s',url)
+        logging.info('fetching lineup from %s',url)
         user,pw=acct[:2] 
         try:
             #fetch from selected source account, strip commas as plex does not like them and we can't filter on them
@@ -190,7 +190,7 @@ def fetch_xmltv(selected_sources):
     cache={'data':{},'channels':{},'programs':[]}
     for url, acct in selected_sources:
         user,pw=acct[:2]
-        logging.info('XMLTV: fetching from %s',url)
+        logging.info('fetching XMLTV from %s',url)
         try:
             xmlin=StringIO(xtream_request(url,user,pw,path='xmltv.php',raw=True))
             xmlin.seek(0)
@@ -220,24 +220,23 @@ def build_xmltv(cache):
     chs=[]
     writer=xmltv.Writer(**dict((k.replace('-','_'),v) for k,v in cache['data'].items()))
     #filter to lineup channels
-    n=0
+    nc=np=0
     for i in ids:
         c=cache['channels'].get(i)
         if c:
-            n+=1
+            nc+=1
             writer.addChannel(c)
-    logging.info('XMLTV: %s channels'%n)
     #add programs for lineup channels
-    n=0
+    np=0
     for p in cache['programs']:
         if p['channel'] in ids:
-            n+=1
+            np+=1
             writer.addProgramme(p)
-    logging.info('XMLTV: %s programs'%n)
     #generate XML
     xmlout=BytesIO()
     writer.write(xmlout)
     xmlout.seek(0)
+    logging.info('XMLTV has %s channels, %s programs',nc,np)
     return xmlout.read().decode()
 
 def build_lineup():
@@ -284,7 +283,7 @@ def build_lineup():
         #strip any remaining leading/trailing whitespace
         for s in streams:
             s[0]=s[0].strip()
-        logging.info('%s %s streams',url,len(streams))
+        logging.debug('lineup: %s %s groups %s streams',url,len(groups),len(streams))
         # build lineup by merging streams across sources
         for s in streams:
             k=s[0].lower().replace(' ','_') 
@@ -322,7 +321,7 @@ def build_lineup():
                 ordered_groups[g]=True
                 logging.debug('lineup: ordering group %s',g)
                 GROUP_ORDER.append(g)
-    logging.info('lineup has %s streams',len(ordered_lineup))
+    logging.info('lineup has %s groups, %s streams',len(ordered_groups),len(ordered_lineup))
     return ordered_lineup
 
 def rescan(config_file,fetch=None,get_xmltv=False):
@@ -629,15 +628,15 @@ class HDHR_handler(http.server.BaseHTTPRequestHandler):
                                 html+='<tr><td></td><td>%s</td><td>%s</td><td>%s</td><td>%s/%s</td><td>%s</td><td>%s</td></tr>\n'%a[:-1]
                         html+='''<tr><td><form method=post><input type=submit name=reload value=reload></form></td></tr>'''
                         if LINEUP:
+                            t=int(int(LINEUP_CACHE)+LAST_RESCAN-time.time())
+                            if t > 0:
+                                cached='<td>(cached for %ss)</td>'%t
+                            else: 
+                                cached=''
                             url='http://%s:%s/m3u' % (SERVER_IP,SERVER_PORT)
-                            html+='<tr><th>M3U</th><td colspan=6><a href="'+url+'">'+url+'</a></td>'
-                            if LINEUP_CACHE:
-                                t=int(int(LINEUP_CACHE)+LAST_RESCAN-time.time())
-                                if t > 0:
-                                    html+='<td>(cached for %ss)</td>'%t
-                            html+='</tr>'
+                            html+='<tr><th>M3U</th><td colspan=6><a href="'+url+'">'+url+'</a></td>'+cached+'</tr>'
                             url='http://%s:%s/xmltv' % (SERVER_IP,SERVER_PORT)
-                            html+='<tr><th>XMLTV</th><td colspan=6><a href="'+url+'">'+url+'</a></td></tr>'
+                            html+='<tr><th>XMLTV</th><td colspan=6><a href="'+url+'">'+url+'</a>'+cached if XMLTV_CACHE else ''+'</tr>'
                         html+='''</table></p>'''
                     html+='''<p><table>'''
                     for k,v in sorted(env.items()):
@@ -719,7 +718,7 @@ def main(*args):
     rescan(CONFIG_FILE)
     # start server
     httpd = http.server.ThreadingHTTPServer((SERVER_IP, int(SERVER_PORT)), HDHR_handler)
-    logging.info('serving at http://%s:%s' % (SERVER_IP, SERVER_PORT))
+    logging.info('serving at http://%s:%s',SERVER_IP, SERVER_PORT)
     httpd.serve_forever()
 
 if __name__ == '__main__':    
