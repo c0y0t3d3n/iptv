@@ -30,10 +30,10 @@ def upper(s):
         return s if s else ''
 
 def config(config_file=None):
-    ENV_VARS=['SERVER_IP','SERVER_PORT','CMD','TIMEOUT','DELAY','DIRECT','GROUPS','STREAMS','RENAME','REPLACE','FORMAT','BUFFER','LOGLEVEL','TUNER_COUNT','UPPER','CHECK','CACHE','LINEUP_CACHE','MIN_SOURCES','ORDER','AUTO_MAP']
+    ENV_VARS=['SERVER_IP','SERVER_PORT','CMD','TIMEOUT','DELAY','DIRECT','GROUPS','STREAMS','RENAME','REPLACE','FORMAT','BUFFER','LOGLEVEL','TUNER_COUNT','UPPER','CHECK','CACHE','LINEUP_CACHE','MIN_SOURCES','ORDER','AUTO_MAP','USER_AGENT']
 
     #set defaults 
-    global SERVER_IP,SERVER_PORT,CMD,DELAY,DIRECT,GROUPS,STREAMS,RENAME,REPLACE,FORMAT,BUFFER,LOGLEVEL,LOGDEPTH,TUNER_COUNT,UPPER,CHECK,TIMEOUT,CACHE,LINEUP_CACHE,MIN_SOURCES,ORDER,AUTO_MAP
+    global SERVER_IP,SERVER_PORT,CMD,DELAY,DIRECT,GROUPS,STREAMS,RENAME,REPLACE,FORMAT,BUFFER,LOGLEVEL,LOGDEPTH,TUNER_COUNT,UPPER,CHECK,TIMEOUT,CACHE,LINEUP_CACHE,MIN_SOURCES,ORDER,AUTO_MAP,USER_AGENT
 
     LOGLEVEL=logging.INFO
     LOGDEPTH=100
@@ -60,6 +60,7 @@ def config(config_file=None):
     STREAMS=''
     REPLACE=''
     ORDER=''
+    USER_AGENT=''
 
     BUFFER=1024*1024 #buffer size for streaming
 
@@ -111,10 +112,13 @@ def config(config_file=None):
 
 def xtream_request(url,user,pw,action=None,path='player_api.php',raw=False):
     # xtream codes API requests
+    headers={}
+    if USER_AGENT:
+        headers['User-Agent']=USER_AGENT
     params={'username':user,'password':pw}
     if action:
         params.update(action=action)
-    r=requests.get(url+'/'+path,params=params,timeout=float(TIMEOUT) if TIMEOUT else None)
+    r=requests.get(url+'/'+path,params=params,headers=headers,timeout=float(TIMEOUT) if TIMEOUT else None)
     r.raise_for_status()
     return r.text if raw else json.loads(r.text)
 
@@ -269,7 +273,7 @@ def build_lineup():
                 [n,
                 s['epg_channel_id'].lower() if s['epg_channel_id'] and ' ' not in s['epg_channel_id'] else None,
                 s['stream_id'],
-                GROUPS_CACHE[url][s['category_id']]]
+                GROUPS_CACHE[url].get(s['category_id'],s['category_id'])]
             )
         #replace channels without pattern if channel with pattern exists
         for p in REPLACE:
@@ -636,7 +640,7 @@ class HDHR_handler(http.server.BaseHTTPRequestHandler):
                             url='http://%s:%s/m3u' % (SERVER_IP,SERVER_PORT)
                             html+='<tr><th>M3U</th><td colspan=6><a href="'+url+'">'+url+'</a></td>'+cached+'</tr>'
                             url='http://%s:%s/xmltv' % (SERVER_IP,SERVER_PORT)
-                            html+='<tr><th>XMLTV</th><td colspan=6><a href="'+url+'">'+url+'</a>'+cached if XMLTV_CACHE else ''+'</tr>'
+                            html+='<tr><th>XMLTV</th><td colspan=6><a href="'+url+'">'+url+'</a>'+(cached if XMLTV_CACHE else '')+'</tr>'
                         html+='''</table></p>'''
                     html+='''<p><table>'''
                     for k,v in sorted(env.items()):
