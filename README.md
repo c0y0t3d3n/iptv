@@ -38,6 +38,8 @@ All matching allows multiple comma-separated values and is case-insensitive as a
 
 ## Filtering
 
+`GROUP_RENAME=` regex patterns to strip or replace in group names. `pattern=string` will replace pattern with string. This is applied before group selection/exclusion.
+
 `GROUPS=` regex patterns of groups to match, `!pattern` to exclude
 
 `STREAMS=` regex patterns of streams to include and `!pattern` of streams to remove. Overrides groups to allow adding or removing individual channels.
