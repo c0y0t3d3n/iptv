@@ -184,9 +184,9 @@ class Config:
                 logging.info('added %s to %s',text,self.config_file)
 
     def add_account(self,text):
-        from lookup import iptvlookup
-        logging.info('looking up %s',text)
-        info=iptvlookup(text)
+        from lookup import lookup
+        logging.info('adding %s',text)
+        info=lookup(text)
         if info:
             self.append(info)
 
@@ -273,7 +273,7 @@ class Data:
         except Exception as e:
             # if account is not valid info will not parse so return 0/0 slots available and raw info
             logging.warning('%s checking %s %s %s %s',e,url,a.username,a.password,a.info)
-            return Account(a.username,a.password,a.priority,str(info),None,info)
+            return Account(a.username,a.password,a.priority,None,None,str(info),None,info)
             
     def refresh_accts(self,accounts=None,force_refresh=False):
         with self.accounts_lock:
@@ -378,7 +378,7 @@ class Data:
         xmlout.seek(0)
         logging.info('XMLTV has %s channels, %s programs',nc,np)
         return xmlout.read().decode()
-
+        
     def build_lineup(self):
         self.source_groups={}
         self.group_order=[]
@@ -419,7 +419,7 @@ class Data:
                     [n,
                     s['epg_channel_id'].lower() if s['epg_channel_id'] and ' ' not in s['epg_channel_id'] else None,
                     s['stream_id'],
-                    self.source_groups[url].get(s['category_id'],[s['category_id']])[0]]
+                    self.source_groups[url].get(s['category_id'],[str(s['category_id'])])[0]]
                 )
             #replace channels without pattern if channel with pattern exists
             for p in self.config.replace:

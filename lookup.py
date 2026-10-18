@@ -5,12 +5,11 @@ import json
 import re
 from html import unescape
 
-FETCH_URL='https://iptvlookup.com/'
-
+IPTVLOOKUP_URL='https://iptvlookup.com/'
 def iptvlookup(url,expr=None):
     try:
         h = url.split('=')[-1] #might be full URL, get the hash
-        r=requests.get(FETCH_URL,params={'data':h})
+        r=requests.get(IPTVLOOKUP_URL,params={'data':h})
         r.raise_for_status()
         payload=None
         for l in r.text.split('\n'):
@@ -37,8 +36,40 @@ def iptvlookup(url,expr=None):
     except Exception as e:
         print (e,r,file=sys.stderr)
 
+def parse_url(url):
+    try:
+        url,params=url.split('?',1)
+        url=url.replace('/get.php','')
+        params=dict(p.split('=') for p in params.split('&'))
+        return '%s %s %s'%(url,params['username'],params['password'])
+    except Exception as e:
+        print (e,file=sys.stderr)
+
+def lookup(url,*args):
+    if 'iptvlookup' in url:
+        r=iptvlookup(url,*args)
+    else:
+        r=parse_url(url)
+    return r
+
 if __name__ == '__main__':
-    r=iptvlookup(*sys.argv[1:])
-    if r: 
-        print (r)
+    from tuner import Config, Account, Data
+    import logging
+    config=Config()
+    config.reload()
+    logging.basicConfig(level=config.loglevel)
+    data=Data(config)
+    r=lookup(*sys.argv[1:])
+    if r:
+        r=r.split() 
+        url,a=r[0],Account(*r[1:3])
+        data.refresh_accts({url:[a]})
+        a=data.accounts[url][0]
+        print (url,' '.join(str(s) for s in a.data()))
+        if sys.argv[-1].endswith('m3u'):
+            config.streams=['.']
+            data.fetch_lineup([(url,a)])
+            data.build_lineup()
+            with open(sys.argv[-1],'w') as f:
+                f.write('\n'.join(data.generate_m3u()))
         
