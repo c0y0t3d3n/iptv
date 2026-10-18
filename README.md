@@ -32,9 +32,7 @@ Account caching is disabled by default, but should be enabled if you have multip
 Lineups and XMLTV are by default cached for 24 hours (86400 seconds). To change this set `LINEUP_CACHE=<seconds>`. 0 disables lineup and XMLTV caching.
 
 # Configuration
-Keys are case-insensitive. `key+=...` will extend list of values for the key
-
-All matching allows multiple comma-separated values and is case-insensitive as all patterns and strings are by default uppercased. This generally makes filtering and merging easier but limits what regexes you can use. Set `UPPER=0` in config to disable uppercasing.
+Keys are case-insensitive. Repeated keys and comma-seperated values will create a list of values for the key. All match patterns and replace strings are by default uppercased. This generally makes filtering and merging easier but limits what regexes you can use. Set `UPPER=0` in config to disable uppercasing.
 
 ## Filtering
 
@@ -79,6 +77,7 @@ Options can set in config or environment
 `DELAY=<seconds>` add a delay between refreshing each accoumnt.\
 `UPPER=0` disable uppercasing of group and channel names.\
 `LOGLEVEL=<level>` set the logging level. 10=debug, 20=info, 30=warning, 40=error. Must be set in environment.\
+`LOGDEPTH==<n>` retain `n` messages on the log page.\
 `FORMAT=<string>` URL format for requesting a stream from the source. %s substitutions will be host, port, username, passsword, stream ID.\
 `CMD=` will override the command used to fetch and remux the stream. Whatever you use should accept a stream URL as `%s` and pipe to STDOUT.
 

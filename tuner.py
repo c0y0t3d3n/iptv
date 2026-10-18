@@ -27,60 +27,64 @@ def upper(s):
 
 class Config:
     #variables we accept and types to cast to
-    env_vars={
-        'server_ip':str,
-        'server_port':int,
-        'cmd':str,
-        'timeout':int,
-        'delay':int,
-        'direct':int,
-        'groups':str,
-        'streams':str,
-        'rename':str,
-        'group_rename':str,
-        'replace':str,
-        'format':str,
-        'buffer':int,
-        'loglevel':int,
-        'tuner_count':int,
-        'upper':int,
-        'check':int,
-        'cache':int,
-        'lineup_cache':int,
-        'min_sources':int,
-        'order':str,
-        'auto_map':int,
-        'user_agent':str,
-        'groups_exclude':str,
-        'streams_exclude':str}
+    env_vars=dict(
+        server_ip=str,
+        server_port=int,
+        cmd=str,
+        timeout=int,
+        delay=int,
+        direct=int,
+        groups=str,
+        streams=str,
+        rename=str,
+        group_rename=str,
+        replace=str,
+        format=str,
+        buffer=int,
+        loglevel=int,
+        logdepth=int,
+        tuner_count=int,
+        upper=int,
+        check=int,
+        cache=int,
+        lineup_cache=int,
+        min_sources=int,
+        order=str,
+        auto_map=int,
+        user_agent=str,
+        groups_exclude=str,
+        streams_exclude=str
+    )
 
     #defaults
-    loglevel=logging.INFO
-    logdepth=100
-    server_ip='localhost'
-    server_port=5004
-    tuner_count=4
-    upper=1
-    cmd='ffmpeg -hide_banner -loglevel error -i %s -c copy -copyts -f mpegts pipe:1'
-    timeout=0
-    delay=0
-    direct=0
-    check=0
-    cache=0
-    lineup_cache=86400
-    min_sources=0
-    auto_map=1
-    format='http://%s:%s/%s/%s/%s'
-    groups=''
-    groups_exclude=''
-    rename=''
-    group_rename=''
-    streams=''
-    streams_exclude=''
-    replace=''
-    order=''
-    user_agent=''
-    buffer=1024*1024 #buffer size for streaming
+    defaults=dict(
+        loglevel=logging.INFO,
+        logdepth=100,
+        server_ip='localhost',
+        server_port=5004,
+        tuner_count=4,
+        upper=1,
+        cmd='ffmpeg -hide_banner -loglevel error -i %s -c copy -copyts -f mpegts pipe:1',
+        timeout=0,
+        delay=0,
+        direct=0,
+        check=0,
+        cache=0,
+        lineup_cache=86400,
+        min_sources=0,
+        auto_map=1,
+        format='http://%s:%s/%s/%s/%s',
+        groups='',
+        groups_exclude='',
+        rename='',
+        group_rename='',
+        streams='',
+        streams_exclude='',
+        replace='',
+        order='',
+        user_agent='',
+        buffer=1024*1024 #buffer size for streaming
+    )
 
     def __init__(self,config_file=None):
         self.config_file=config_file
@@ -89,6 +93,7 @@ class Config:
     def reload(self):
         '''read, build, and return config'''
         with self.lock:
+            config={}
             #config from k=v in file
             if self.config_file:
                 try:
@@ -99,25 +104,17 @@ class Config:
                             if '=' in l:
                                 k,v=l.strip('\n').split('=',1)
                                 k=k.lower()
-                                # if key+=value extend value list else set key to value
-                                if k.endswith('+'):
-                                    k=k[:-1]
-                                    if k in self.env_vars:
-                                        setattr(self,k,getattr(self,k)+','+v)
+                                if k in config:
+                                    config[k]=config[k]+','+v
                                 elif k in self.env_vars:
-                                    setattr(self,k,v)
+                                    config[k]=v
                 except Exception as e:
                     logging.warning(e)
-            #config from env_vars
+            #build config from file and env_vars
             for k,t in self.env_vars.items():
                 try:
-                    #get from env overrides
-                    v=os.getenv(k.upper(),getattr(self,k))
-                    #do not cast if list
-                    if type(v) is not list and type(v) is not t:
-                        v=t(v)
-                    setattr(self,k,v)
-
+                    #priorirty is env var > config > default
+                    setattr(self,k,t(os.getenv(k.upper(),config.get(k,self.defaults[k]))))
                 except Exception as e:
                     logging.warning('%s: %s',k,e)
 
@@ -240,7 +237,7 @@ class Data:
         self.last_refresh=0
         self.last_rescan=0
         self.xmltv_cache=None
-        self.accounts_lock=Lock()
+        self.refresh_lock=Lock()
         self.rescan_lock=Lock()
         self.accounts={}
         self.lineup=None
@@ -276,19 +273,22 @@ class Data:
             return Account(a.username,a.password,a.priority,None,None,str(info),None,info)
             
     def refresh_accts(self,accounts=None,force_refresh=False):
-        with self.accounts_lock:
+        #refresh status of accounts from source if not cached
+        with self.refresh_lock:
             if force_refresh or not self.last_refresh or self.last_refresh + self.config.cache < time.time():
-                if accounts is None:
+                if accounts is None: #if no list passed use cached accounts
                     accounts=self.accounts.copy()
                 self.accounts={}
+                self.account_map={}
                 # check accounts and return map of source to accounts sorted by free slots
                 for url,accts in accounts.items():
                     if self.config.check:
                         accts=random.sample(accts,min(self.config.check,len(accts)))
                     logging.info('refreshing %s',url)
                     for a in accts:
-                        self.accounts.setdefault(url,[]).append(self.check_acct(url,a))
-                        logging.debug('refresh: %s',self.accounts[url][-1].info)
+                        ra=self.check_acct(url,a)
+                        logging.debug('refresh: %s',ra.info)
+                        self.accounts.setdefault(url,[]).append(ra)
                         time.sleep(self.config.delay)
                     #sort accounts to put active most free slots first
                     self.accounts[url].sort(key=lambda a:(a.active(), a.available()), reverse=True)
@@ -512,21 +512,22 @@ class Stream:
         self.data=data
         self.procs={}
 
-    def get_stream_url(self,k):
+    def get_stream(self,k):
         self.data.refresh_accts()
         l=self.data.lineup[k]
         try:
             #get the best source/account for this channe;l
             (source,a)=self.data.select_sources(list(l['sources'].keys()))[0]
-            #format the stream URL
+            #format the stream URL, return URL and account
             return self.config.format % (a.info['server_info']['url'], 
                     a.info['server_info']['port'], a.username, a.password, 
-                    l['sources'][source])
+                    l['sources'][source]),a
         except Exception as e: #no source for this stream
             logging.debug(e)
+            return None,None
 
     def serve_stream(self,k,handler):
-        url=self.get_stream_url(k)
+        url,a=self.get_stream(k)
         if url:
             # remux with ffmpeg
             args = self.config.cmd % url
@@ -541,6 +542,7 @@ class Stream:
                 return
             handler.send() #HTTP 200 and start sending stream data
             try:
+                a.active_conns+=1 #update cached account
                 while cmd.poll() is None: #cmd exited
                     data = cmd.stdout.read(int(self.config.buffer))
                     if not data: # cmd exited, source dropped the stream
@@ -555,9 +557,11 @@ class Stream:
                 logging.exception(e)
             cmd.stdout.close() # stop cmd if running
             cmd.wait() # wait for exit
+            a.active_conns-=1
             logging.info('%s pid %s stop (%d)', handler.client_address, cmd.pid, cmd.returncode)
             del self.procs[cmd.pid]
         else:
+            self.data.last_refresh=0
             handler.send(code=503) #no source for stream
 
 
@@ -631,11 +635,13 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 logging.info('%s stream %s'%(self.client_address,k))
                 if config.direct:
                     # send the URL to plex
-                    url=stream.get_stream_url(k)
+                    url,a=stream.get_stream(k)
                     if url:
                         logging.info('%s redirect to %s', self.client_address, url)
+                        a.active_conns+=1 #update cached account
                         self.send(redirect=url)
                     else:
+                        self.data.last_refresh=0
                         self.send('no source for %s' % k,code=503)
                     return
                 else: 
