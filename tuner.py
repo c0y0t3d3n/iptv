@@ -237,8 +237,8 @@ class Data:
     '''data store for accounts, lineup, and EPG'''
     def __init__(self,config):
         self.config=config
-        self.last_refresh=None
-        self.last_rescan=None
+        self.last_refresh=0
+        self.last_rescan=0
         self.xmltv_cache=None
         self.accounts_lock=Lock()
         self.rescan_lock=Lock()
@@ -548,7 +548,7 @@ class Stream:
                     handler.wfile.write(data)
                 # cmd exited likely source dropped the stream
                 logging.warning('%s pid %s exited',handler.client_address, cmd.pid)
-                self.data.last_refresh=None #invalidate cache as account may be full
+                self.data.last_refresh=0 #invalidate cache as account may be full
             except BrokenPipeError: 
                 logging.debug('stream: %s pid %s disconnected',handler.client_address, cmd.pid)
             except Exception as e:
@@ -717,15 +717,15 @@ class Handler(http.server.BaseHTTPRequestHandler):
                         html+='\n'.join('<option value="%s">'%g[0].replace('|','\|') for g in sorted(sg.values()))
                     html+='''</datalist>'''
                     html+='''<form method=post><p><table>
-                    <tr><th>group rename:</th><td><input type=checkbox title='match at start' name=group_rename_start><input type=text size=30 title='remove matching text from group name' name=group_rename><input type=checkbox title='match at end' name=group_rename_end></td>
+                    <tr><th>group rename:</th><td><input type=checkbox title='match at start' name=group_rename_start><input type=text size=32 title='remove matching text from group name' name=group_rename><input type=checkbox title='match at end' name=group_rename_end></td>
                     <td> to <input type=text title='replace matching text with' name=group_rename_to></td></tr>
-                    <tr><th>group:</th><td><input type=checkbox title='match at start' name=group_start><input type=text size=30 name=group list=group-select><input type=checkbox title='match at end' name=group_end></td></tr>
-                    <tr><th>streams:</th><td><input type=checkbox title='match at start' name=stream_start><input type=text size=30 name=stream><input type=checkbox title='match at end' name=stream_end></td>
+                    <tr><th>group:</th><td><input type=checkbox title='match at start' name=group_start><input type=text size=32 name=group list=group-select><input type=checkbox title='match at end' name=group_end></td></tr>
+                    <tr><th>streams:</th><td><input type=checkbox title='match at start' name=stream_start><input type=text size=32 name=stream><input type=checkbox title='match at end' name=stream_end></td>
                     <td><input type=checkbox title='exclude matching streams' name=stream_exclude>exclude</td></tr>
-                    <tr><th>rename:</th><td><input type=checkbox title='match at start' name=rename_start><input type=text size=30 title='remove matching text from name' name=rename><input type=checkbox title='match at end' name=rename_end></td>
+                    <tr><th>rename:</th><td><input type=checkbox title='match at start' name=rename_start><input type=text size=32 title='remove matching text from name' name=rename><input type=checkbox title='match at end' name=rename_end></td>
                     <td> to <input type=text title='replace matching text with' name=rename_to></td></tr>
-                    <tr><th>replace:</th><td><input type=checkbox title='match at start' name=replace_start><input type=text title='if channel matching pattern exists, replace channels matching name without pattern' size=30 name=replace><input type=checkbox title='match at end' name=replace_end></td></tr>
-                    <tr><th>comment:</th><td><input type=text size=35 name=comment></td><td><input type=submit value="add filter"></tr>
+                    <tr><th>replace:</th><td><input type=checkbox title='match at start' name=replace_start><input type=text title='if channel matching pattern exists, replace channels matching name without pattern' size=32 name=replace><input type=checkbox title='match at end' name=replace_end></td></tr>
+                    <tr><th>comment:</th><td><input type=text size=32 name=comment></td><td><input type=submit value="add filter"></tr>
                     </table></p></form>'''
                 
                 #serve logs
