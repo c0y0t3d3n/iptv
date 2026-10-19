@@ -3,8 +3,8 @@ FROM python:slim
 COPY --from=ffmpeg /ffmpeg /usr/local/bin/
 RUN pip install --no-cache-dir requests
 WORKDIR /app
-COPY *.py /app
-COPY tuner.cfg.dist /app/tuner.cfg
+COPY app/* /app
+RUN mkdir /config
 EXPOSE 5004
-CMD ["python", "-m", "tuner", "tuner.cfg"]
+CMD ["python", "-m", "tuner", "config/tuner.cfg"]
 

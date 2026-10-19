@@ -7,7 +7,7 @@
 * When a channel is requested, refreshes the status of all accounts and chooses the best available.
 
 # Getting started
-A `docker-compose.yaml` and `Dockerfile` to build/run a tuner container is included. Make sure you set `SERVER_IP` in `docker-compose.yaml`. A `tuner.cfg` file must exist if using docker-compose as it will be mounted into the container. A default `tuner.cfg` is included.
+A `docker-compose.yaml` and `Dockerfile` to build/run a tuner container is included. Make sure you set `SERVER_IP` in `docker-compose.yaml`. A default config will be created if it does not exist.
 
 To add the tuner to Plex you need to manually enter the SERVER_IP:SERVER_PORT and it should appear. When you rescan channels in Plex it reloads the config and fetches lineups. Once you have the group and channel name filters set properly Plex should be able to map most of them to one of your local cable/satellite provider lineups. Any manual mappings you do should stick even if you change IPTV providers, as long as you adjust the filters. If you are using Jellyfin or another IPTV player, see <B>M3U and XMLTV</b>.
 
