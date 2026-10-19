@@ -20,20 +20,20 @@ import xmltv
 
 DEFAULT_CONFIG='''
 #default group name cleanup
-group_rename=USA \\| ,^news.*=news,fam.*kids=kids
+group_rename=^^USA? ?[\\|:] ?,^news.*weather$=news,^family.*kids$=kids
 
 #default group selection
-groups=^(BASIC|DOCUMENTARIES|ENTERTAINMENT|KIDS|MOVIES|MUSIC|NEWS|PREMIUM|SPORTS)$
+groups=^(ENTERTAINMENT|KIDS|MOVIES|MUSIC|NEWS|SPORTS)$
 
 #group order in lineup, non-matching groups will be at end 
-order=LOCAL,SPORTS,NEWS,BASIC,ENTERTAINMENT,DOUMENTARIES,MUSIC,KIDS,MOVIES,PREMIUM
+order=LOCAL,SPORTS,NEWS,ENTERTAINMENT,MUSIC,KIDS,MOVIES
 
 #exclude non US and west
-streams=!(CA|CAN|UK|GB|ES)[: ][: ],! \\(?WEST\\)?
+streams=!(CA|CAN|UK|GB|ES)[: ][: ],! \\(?west\\)?
 
 #to include your local stations, insert names of cities or call signs of your stations
-streams=mycity,CALL
-#clean up local channel names, uncomment and substitute your state and city
+streams=mycity,CALLSIGN
+#clean up local channel names, substitute your state and city
 rename=( - )?(ST).*(city) ?\\|?= #to space if embedded
 
 #strip common prefixes/suffixes
@@ -44,6 +44,7 @@ replace=SHD$,FHD$,UHD$
 
 #accounts go here as
 #URL USERNAME PASSWORD PRIORITY
+
 '''
 
 def upper(s):
@@ -288,7 +289,6 @@ class Data:
                 if accounts is None: #if no list passed use cached accounts
                     accounts=self.accounts.copy()
                 self.accounts={}
-                self.account_map={}
                 # check accounts and return map of source to accounts sorted by free slots
                 for url,accts in accounts.items():
                     if self.config.check:
@@ -394,93 +394,99 @@ class Data:
         ids={}  
         groups={}
         lineup={}
-        for url in sorted(self.groups_cache.keys()):
-            for i,g in self.groups_cache[url].items():
-                for p in self.config.group_rename:
-                    if '=' in p:
-                        p,r=p.split('=',1)
-                    else:
-                        r=''
-                    g=re.sub(p,r,g)
-                #id:[renamed group, selected]
-                self.source_groups.setdefault(url,dict())[i]=[g,False]
-                #select groups by filters
-                if any(re.search(p,g) for p in self.config.groups) and not any(re.search(p,g) for p in self.config.groups_exclude):
-                    self.source_groups[url][i][1]=True
-            #select streams by group or filter
-            streams_in=[ s for s in self.streams_cache[url] if \
-                self.source_groups[url].get(s['category_id'],[None,None])[1] \
-                or any(re.search(p,upper(s['name'])) for p in self.config.streams) ]
-            #remove and rename streams
-            streams=[]
-            for s in streams_in:
-                n=upper(s['name'])
-                if  any(re.search(p,n) for p in self.config.streams_exclude):
-                    continue
-                for p in self.config.rename:
-                    if '=' in p:
-                        p,r=p.split('=',1)
-                    else:
-                        r=''
-                    n=re.sub(p,r,n)
-                # each stream is name, EPG ID, source stream ID, group name. Filter bogus EPG IDs
-                streams.append(
-                    [n,
-                    s['epg_channel_id'].lower() if s['epg_channel_id'] and ' ' not in s['epg_channel_id'] else None,
-                    s['stream_id'],
-                    self.source_groups[url].get(s['category_id'],[str(s['category_id'])])[0]]
-                )
-            #replace channels without pattern if channel with pattern exists
-            for p in self.config.replace:
-                replaced=set()
-                replaced.update(re.sub(p,'',s[0]) for s in streams if re.search(p,s[0]))
-                #remove replaced channels
-                streams=[s for s in streams if s[0] not in replaced]
-                #rename name+pattern to name to replace channel
+        try:
+            for url in self.groups_cache.keys():
+                for i,g in self.groups_cache[url].items():
+                    for p in self.config.group_rename:
+                        if '=' in p:
+                            p,r=p.split('=',1)
+                        else:
+                            r=''
+                        g=re.sub(p,r,g)
+                    #id:[renamed group, selected]
+                    self.source_groups.setdefault(url,dict())[i]=[g,False]
+                    #select groups by filters
+                    if any(re.search(p,g) for p in self.config.groups) and not any(re.search(p,g) for p in self.config.groups_exclude):
+                        self.source_groups[url][i][1]=True
+                #select streams by group or filter
+                streams_in=[ s for s in self.streams_cache[url] if \
+                    self.source_groups[url].get(s['category_id'],[None,None])[1] \
+                    or any(re.search(p,upper(s['name'])) for p in self.config.streams) ]
+                #remove and rename streams
+                streams=[]
+                for s in streams_in:
+                    n=upper(s['name'])
+                    if  any(re.search(p,n) for p in self.config.streams_exclude):
+                        continue
+                    for p in self.config.rename:
+                        if '=' in p:
+                            p,r=p.split('=',1)
+                        else:
+                            r=''
+                        n=re.sub(p,r,n)
+                    # each stream is name, EPG ID, source stream ID, group name. Filter bogus EPG IDs
+                    streams.append(
+                        [n,
+                        s['epg_channel_id'].lower() if s['epg_channel_id'] and ' ' not in s['epg_channel_id'] else None,
+                        s['stream_id'],
+                        self.source_groups[url].get(s['category_id'],[str(s['category_id'])])[0]]
+                    )
+                #replace channels without pattern if channel with pattern exists
+                for p in self.config.replace:
+                    replaced=set()
+                    replaced.update(re.sub(p,'',s[0]) for s in streams if re.search(p,s[0]))
+                    #remove replaced channels
+                    streams=[s for s in streams if s[0] not in replaced]
+                    #rename name+pattern to name to replace channel
+                    for s in streams:
+                        s[0]=re.sub(p,'',s[0])
+                #strip any remaining leading/trailing whitespace
                 for s in streams:
-                    s[0]=re.sub(p,'',s[0])
-            #strip any remaining leading/trailing whitespace
-            for s in streams:
-                s[0]=s[0].strip()
-            logging.debug('lineup: %s %s groups %s streams',url,len([g for g in self.source_groups[url].values() if g[1]]),len(streams))
-            # build lineup by merging streams across sources
-            for s in streams:
-                k=s[0].lower().replace(' ','_') 
-                #auto mapping will merge channels with different names if the epg ids match
-                if self.config.auto_map and k not in lineup and s[1] in ids:
-                        logging.debug('lineup: %s mapped %s to %s',s[1],k,ids[s[1]])
-                        k=ids[s[1]]
-                #map EPG IDs to key
-                if s[1]:
-                    ids[s[1]]=k
-                #create channel and add this source
-                lineup.setdefault(k, {
-                                    'GuideNumber':s[0],
-                                    'GuideName':s[0], 
-                                    'GuideID':s[1],
-                                    'GuideCategory':s[3],
-                                    'sources':{},
-                                    'URL':'http://%s:%s/stream/%s'%(self.config.server_ip,self.config.server_port,quote(k))
-                                })['sources'][url]=s[2]
-                #ensure a guide ID if possible
-                if not lineup[k]['GuideID']:
-                    lineup[k]['GuideID']=s[1]
-        #if set, filter to channels with EPG IDs and at least MIN_SOURCES sources
-        if self.config.min_sources:
-            lineup=dict((k,l) for k,l in lineup.items() if l['GuideID'] and len(l['sources'])>=self.config.min_sources)
-        # now order the final lineup
-        self.lineup={}
-        ordered_groups=dict(sorted((l['GuideCategory'],False) for l in lineup.values()))
-        for o in self.config.order+['']: #empty string at end will output all remaining groups
-            for g in ordered_groups:
-                #if group matches pattern and has not been output
-                if not ordered_groups[g] and re.search(o,g):
-                    #output group ahd mark as output
-                    self.lineup.update((k,l) for k,l in lineup.items() if l['GuideCategory']==g)
-                    ordered_groups[g]=True
-                    logging.debug('lineup: ordering group %s',g)
-                    self.group_order.append(g)
-        logging.info('lineup has %s groups, %s streams',len(ordered_groups),len(self.lineup))
+                    s[0]=s[0].strip()
+                logging.debug('lineup: %s %s groups %s streams',url,len([g for g in self.source_groups[url].values() if g[1]]),len(streams))
+                # build lineup by merging streams across sources
+                for s in streams:
+                    k=s[0].lower().replace(' ','_') 
+                    #auto mapping will merge channels with different names if the epg ids match
+                    if self.config.auto_map and k not in lineup and s[1] in ids:
+                            logging.debug('lineup: %s mapped %s to %s',s[1],k,ids[s[1]])
+                            k=ids[s[1]]
+                    #map EPG IDs to key
+                    if s[1]:
+                        ids[s[1]]=k
+                    #create channel and add this source
+                    lineup.setdefault(k, {
+                                        'GuideNumber':s[0],
+                                        'GuideName':s[0], 
+                                        'GuideID':s[1],
+                                        'GuideCategory':s[3],
+                                        'sources':{},
+                                        'URL':'http://%s:%s/stream/%s'%(self.config.server_ip,self.config.server_port,quote(k))
+                                    })['sources'][url]=s[2]
+                    #ensure a guide ID if possible
+                    if not lineup[k]['GuideID']:
+                        lineup[k]['GuideID']=s[1]
+            #if set, filter to channels with EPG IDs and at least MIN_SOURCES sources
+            if self.config.min_sources:
+                lineup=dict((k,l) for k,l in lineup.items() if l['GuideID'] and len(l['sources'])>=self.config.min_sources)
+            # now order the final lineup
+            self.lineup={}
+            ordered_groups=dict(sorted((l['GuideCategory'],False) for l in lineup.values()))
+            for o in self.config.order+['']: #empty string at end will output all remaining groups
+                for g in ordered_groups:
+                    #if group matches pattern and has not been output
+                    if not ordered_groups[g] and re.search(o,g):
+                        #output group ahd mark as output
+                        self.lineup.update((k,l) for k,l in lineup.items() if l['GuideCategory']==g)
+                        ordered_groups[g]=True
+                        logging.debug('lineup: ordering group %s',g)
+                        self.group_order.append(g)
+            logging.info('lineup has %s groups, %s streams',len(ordered_groups),len(self.lineup))
+        except Exception as e:
+            try:
+                logging.warning('build lineup: %s, last pattern was %s',e,p)
+            except:
+                logging.warning('build lineup: %s',e)
         return self.lineup
 
     def rescan(self,force_rescan=None,get_xmltv=False):
@@ -503,7 +509,6 @@ class Data:
                 self.build_lineup()
             except Exception as e:
                 logging.warning('no usable accounts: %s',e)
-                raise e
 
     def generate_m3u(self):
         m3u=[]

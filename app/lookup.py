@@ -48,6 +48,8 @@ def parse_url(url):
 def lookup(url,*args):
     if 'iptvlookup' in url:
         r=iptvlookup(url,*args)
+    elif ' ' in url:
+        r=url
     else:
         r=parse_url(url)
     return r
