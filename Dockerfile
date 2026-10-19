@@ -6,5 +6,5 @@ WORKDIR /app
 COPY app/* /app
 RUN mkdir /config
 EXPOSE 5004
-CMD ["python", "-m", "tuner", "config/tuner.cfg"]
+CMD ["python", "-m", "tuner", "/config/tuner.cfg"]
 
