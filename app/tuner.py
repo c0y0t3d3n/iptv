@@ -17,78 +17,79 @@ from threading import Lock
 from io import StringIO, BytesIO
 import xmltv
 
+
+DEFAULT_CONFIG='''
+#default group name cleanup
+group_rename=USA \\| ,^news.*=news,fam.*kids=kids
+
+#default group selection
+groups=^(BASIC|DOCUMENTARIES|ENTERTAINMENT|KIDS|MOVIES|MUSIC|NEWS|PREMIUM|SPORTS)$
+
+#group order in lineup, non-matching groups will be at end 
+order=LOCAL,SPORTS,NEWS,BASIC,ENTERTAINMENT,DOUMENTARIES,MUSIC,KIDS,MOVIES,PREMIUM
+
+#exclude non US and west
+streams=!(CA|CAN|UK|GB|ES)[: ][: ],! \\(?WEST\\)?
+
+#to include your local stations, insert names of cities or call signs of your stations
+streams=mycity,CALL
+#clean up local channel names, uncomment and substitute your state and city
+rename=( - )?(ST).*(city) ?\\|?= #to space if embedded
+
+#strip common prefixes/suffixes
+rename=^USA? ?[\\|: ], \\(?east\\)?, HD$
+
+#replace duplicate channels with higher def, prefer UHD,FHD,SHD
+replace=SHD$,FHD$,UHD$
+
+#accounts go here as
+#URL USERNAME PASSWORD PRIORITY
+'''
+
 def upper(s):
     global UPPER
     if UPPER: 
         return s.upper() if s else ''
     else: 
         return s if s else ''
-
-
+        
 class Config:
     #variables we accept and types to cast to
     env_vars=dict(
-        server_ip=str,
-        server_port=int,
-        cmd=str,
-        timeout=int,
-        delay=int,
-        direct=int,
-        groups=str,
-        streams=str,
-        rename=str,
-        group_rename=str,
-        replace=str,
-        format=str,
-        buffer=int,
-        loglevel=int,
-        logdepth=int,
-        tuner_count=int,
-        upper=int,
-        check=int,
-        cache=int,
-        lineup_cache=int,
-        min_sources=int,
-        order=str,
-        auto_map=int,
-        user_agent=str,
-        groups_exclude=str,
-        streams_exclude=str
-    )
-
-    #defaults
-    defaults=dict(
-        loglevel=logging.INFO,
-        logdepth=100,
-        server_ip='localhost',
-        server_port=5004,
-        tuner_count=4,
-        upper=1,
-        cmd='ffmpeg -hide_banner -loglevel error -i %s -c copy -copyts -f mpegts pipe:1',
-        timeout=0,
-        delay=0,
-        direct=0,
-        check=0,
-        cache=0,
-        lineup_cache=86400,
-        min_sources=0,
-        auto_map=1,
-        format='http://%s:%s/%s/%s/%s',
-        groups='',
-        groups_exclude='',
-        rename='',
-        group_rename='',
-        streams='',
-        streams_exclude='',
-        replace='',
-        order='',
-        user_agent='',
-        buffer=1024*1024 #buffer size for streaming
+        loglevel=(int,logging.INFO),
+        logdepth=(int,100),
+        server_ip=(str,'localhost'),
+        server_port=(int,5004),
+        tuner_count=(int,4),
+        upper=(int,1),
+        cmd=(str,'ffmpeg -hide_banner -loglevel error -i %s -c copy -copyts -f mpegts pipe:1'),
+        timeout=(int,0),
+        delay=(int,0),
+        direct=(int,0),
+        check=(int,0),
+        cache=(int,0),
+        lineup_cache=(int,86400),
+        min_sources=(int,0),
+        auto_map=(int,1),
+        format=(str,'http://%s:%s/%s/%s/%s'),
+        groups=(str,''),
+        groups_exclude=(str,''),
+        rename=(str,''),
+        group_rename=(str,''),
+        streams=(str,''),
+        streams_exclude=(str,''),
+        replace=(str,''),
+        order=(str,''),
+        user_agent=(str,''),
+        buffer=(int,1024*1024) #buffer size for streaming
     )
 
     def __init__(self,config_file=None):
         self.config_file=config_file
         self.lock=Lock()
+        if self.config_file and not os.path.exists(self.config_file):
+            with open(self.config_file,'w') as f:
+                f.write(DEFAULT_CONFIG)
 
     def reload(self):
         '''read, build, and return config'''
@@ -109,14 +110,14 @@ class Config:
                                 elif k in self.env_vars:
                                     config[k]=v
                 except Exception as e:
-                    logging.warning(e)
+                    logging.error('%s reading %s',e,self.config)
             #build config from file and env_vars
-            for k,t in self.env_vars.items():
+            for k,(t,d) in self.env_vars.items():
                 try:
                     #priorirty is env var > config > default
-                    setattr(self,k,t(os.getenv(k.upper(),config.get(k,self.defaults[k]))))
+                    setattr(self,k,t(os.getenv(k.upper(),config.get(k,d))))
                 except Exception as e:
-                    logging.warning('%s: %s',k,e)
+                    logging.warning('config %s: %s',k,e)
 
             #set global uppercasing
             global UPPER
@@ -142,7 +143,7 @@ class Config:
             self.order=[p for p in upper(self.order).split(',') if p]
 
             # return config for info 
-            return dict((e,getattr(self,e)) for e in self.env_vars)
+            return dict((e,getattr(self,e,None)) for e in self.env_vars)
 
     def get_config(self):
         with self.lock:
@@ -155,30 +156,38 @@ class Config:
     def get_accounts(self):
         with self.lock:
             accounts={}
-            with open(self.config_file) as f:
-                lines=f.readlines()
-                for l in lines:
-                    if l.startswith('http'):
-                        try:
-                            l=l.strip().split()
-                            url,user,pw=l[:3]
-                            pri=l[3] if len(l)>3 else 0
-                            accounts.setdefault(url,[]).append(Account(user,pw,pri))
-                        except Exception as e:
-                            logging.debug('%s parsing %s',e,l)
+            try:
+                with open(self.config_file) as f:
+                    lines=f.readlines()
+                    for l in lines:
+                        if l.startswith('http'):
+                            try:
+                                l=l.strip().split()
+                                url,user,pw=l[:3]
+                                pri=l[3] if len(l)>3 else 0
+                                accounts.setdefault(url,[]).append(Account(user,pw,pri))
+                            except Exception as e:
+                                logging.debug('%s parsing %s',e,l)
+            except Exception as e:
+                logging.error('%s reading config',e)
         return accounts
 
     def write(self,text):    
         with self.lock:    
-            with open(self.config_file,'w') as f:
-                f.write(text)
-                logging.info('wrote %s bytes to %s',len(text),self.config_file)
+            try:
+                with open(self.config_file,'w') as f:
+                    f.write(text)
+            except Exception as e:
+                logging.error('%s writing config',e)
 
     def append(self,text):
         with self.lock:
-            with open(self.config_file,'a') as f:
-                f.write(text+'\n')
-                logging.info('added %s to %s',text,self.config_file)
+            try:
+                with open(self.config_file,'a') as f:
+                    f.write(text+'\n')
+                    logging.info('added %s to %s',text,self.config_file)
+            except Exception as e:
+                logging.error('%s writing config',e)
 
     def add_account(self,text):
         from lookup import lookup
@@ -720,7 +729,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     html+='''<datalist id=group-select>'''
                     for s,sg in data.source_groups.items():
                         #escape | character, this is common in group names and will break regexes
-                        html+='\n'.join('<option value="%s">'%g[0].replace('|',r'\|') for g in sorted(sg.values()))
+                        html+='\n'.join('<option value="%s">'%g[0].replace('|','\\|') for g in sorted(sg.values()))
                     html+='''</datalist>'''
                     html+='''<form method=post><p><table>
                     <tr><th>group rename:</th><td><input type=checkbox title='match at start' name=group_rename_start><input type=text size=32 title='remove matching text from group name' name=group_rename><input type=checkbox title='match at end' name=group_rename_end></td>
@@ -731,7 +740,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     <tr><th>rename:</th><td><input type=checkbox title='match at start' name=rename_start><input type=text size=32 title='remove matching text from name' name=rename><input type=checkbox title='match at end' name=rename_end></td>
                     <td> to <input type=text title='replace matching text with' name=rename_to></td></tr>
                     <tr><th>replace:</th><td><input type=checkbox title='match at start' name=replace_start><input type=text title='if channel matching pattern exists, replace channels matching name without pattern' size=32 name=replace><input type=checkbox title='match at end' name=replace_end></td></tr>
-                    <tr><th>comment:</th><td><input type=text size=32 name=comment></td><td><input type=submit value="add filter"></tr>
+                    <tr><th>comment:</th><td><input type=text size=40 name=comment></td><td><input type=submit value="add filter"></tr>
                     </table></p></form>'''
                 
                 #serve logs
@@ -753,7 +762,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     </p>'''
                     html+='''<p><table>'''
                     if data.accounts:
-                        html+='''<tr><th></th><th>user</th><th>pass</th><th>priority</th><th colspan=2>status</th><th>expires</th>'''
+                        html+='''<tr><th></th><th>user</th><th>pass</th><th>pri</th><th colspan=2>status</th><th>expires</th>'''
                         t=int(config.cache+data.last_refresh-time.time())
                         if t > 0:
                             html+='<td>(cached for %ss)</td>'%t
@@ -764,6 +773,11 @@ class Handler(http.server.BaseHTTPRequestHandler):
                             for a in accts:
                                 html+='<tr><td></td><td>%s</td><td>%s</td><td>%s</td><td>%s/%s</td><td>%s</td><td>%s</td></tr>\n'%a.data()
                     html+='''<tr><td><form method=post><input type=submit name=reload value=reload></form></td></tr>'''
+                    html+='''
+                        <tr><td colspan=8><form method=post>
+                            URL: <input type=text size=80 name=add>
+                            <input type=submit value="add account">
+                        </form></td></tr>'''
                     if data.lineup:
                         t=int(config.lineup_cache+data.last_rescan-time.time())
                         if t > 0:
@@ -822,11 +836,6 @@ class Handler(http.server.BaseHTTPRequestHandler):
             html+=config.get_config()
             html+='''</textarea><br>
             <input type=submit value="save config">
-            </form></p>'''
-            html+='''
-            <p><form method=post>
-                <a href='https://iptvlookup.com/list?filter_type=xtream' target=_new>IPTVlookup</a> URL: <input type=text size=80 name=add>
-                <input type=submit value="add account">
             </form></p>'''
         html+='''</body><html>'''
         return html
