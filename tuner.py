@@ -720,7 +720,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     html+='''<datalist id=group-select>'''
                     for s,sg in data.source_groups.items():
                         #escape | character, this is common in group names and will break regexes
-                        html+='\n'.join('<option value="%s">'%g[0].replace('|','\|') for g in sorted(sg.values()))
+                        html+='\n'.join('<option value="%s">'%g[0].replace('|',r'\|') for g in sorted(sg.values()))
                     html+='''</datalist>'''
                     html+='''<form method=post><p><table>
                     <tr><th>group rename:</th><td><input type=checkbox title='match at start' name=group_rename_start><input type=text size=32 title='remove matching text from group name' name=group_rename><input type=checkbox title='match at end' name=group_rename_end></td>
