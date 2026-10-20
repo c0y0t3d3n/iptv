@@ -198,12 +198,6 @@ class Config:
             self.append(info)
 
     def add_filter(self,filter_type,filter_text,rename_to=None,start=False,end=False,exclude=False,comment=''):
-        #read exiting config, if this type of filter is in there we need to make it type+=value, not type=value
-        with self.lock:
-            with open(self.config_file) as f:
-                lines=f.readlines()
-        if any(l.startswith(filter_type) for l in lines):
-            filter_type+='+'
         if start:
             filter_text='^'+filter_text
         if end:
