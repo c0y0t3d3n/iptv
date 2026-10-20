@@ -440,6 +440,7 @@ class Data:
                 logging.debug('lineup: %s %s groups %s streams',url,len([g for g in self.source_groups[url].values() if g[1]]),len(streams))
                 # build lineup by merging streams across sources
                 for s in streams:
+                    #key will be name lower/snakecased.
                     k=s[0].lower().replace(' ','_') 
                     #auto mapping will merge channels with different names if the epg ids match
                     if self.config.auto_map and k not in lineup and s[1] in ids:
@@ -460,6 +461,9 @@ class Data:
                     #ensure a guide ID if possible
                     if not lineup[k]['GuideID']:
                         lineup[k]['GuideID']=s[1]
+                    #deal with source order changing by always keeping shorter name
+                    if len(s[0]) < len(lineup[k]['GuideNumber']):
+                        lineup[k].update(GuideNumber=s[0],GuideName=s[0])
             #if set, filter to channels with EPG IDs and at least MIN_SOURCES sources
             if self.config.min_sources:
                 lineup=dict((k,l) for k,l in lineup.items() if l['GuideID'] and len(l['sources'])>=self.config.min_sources)
