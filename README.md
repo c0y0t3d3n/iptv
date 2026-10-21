@@ -36,18 +36,20 @@ Keys are case-insensitive. Repeated keys and comma-seperated values will create 
 
 ## Filtering
 
-`GROUP_RENAME=` regex patterns to strip or replace in group names. `pattern=string` will replace pattern with string. This is applied before group selection/exclusion.
+Filters are applied in the following order:
 
-`GROUPS=` regex patterns of groups to match, `!pattern` to exclude
+`GROUP_RENAME=` regex patterns to strip or replace in group names. `pattern=string` will replace pattern with string. This is applied before group selection.
 
-`STREAMS=` regex patterns of streams to include and `!pattern` of streams to remove. Overrides groups to allow adding or removing individual channels.
+`GROUPS=` regex patterns of groups to match. All streams in a group will be selected.
+ 
+`STREAMS=` regex patterns of streams to add or exclude if match. `!pattern` will exclude if match.
 
-`RENAME=` regex patterns to strip or replace in stream names. `pattern=string` will replace pattern with string.
+`RENAME=` regex patterns to strip or replace in stream names. `pattern=string` will replace pattern with string. This is applied after stream selection.
 
 `REPLACE=` replace any streams with the same name if a stream matching name+`pattern` exists.\
 Example: `REPLACE= UHD$` will turn 'ABC UHD' into 'ABC', removing any streams named 'ABC', but only if 'ABC UHD' exists. `REPLACE=^FHD: ` will do the same for 'FHD: ' at the start of the name.
 
-`ORDER=` order of groups in the lineup. Groups matching the first pattern will be followed by groups matching the next, and so on. Groups that do not match any pattern will be placed last.
+`ORDER=` order of groups in the lineup. Groups matching the first pattern will be followed by groups matching the next and so on. Groups that do not match any pattern will be placed last.
 
 ## Accounts
 Put xtream codes in the config as:
