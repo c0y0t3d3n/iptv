@@ -20,7 +20,9 @@ import xmltv
 
 DEFAULT_CONFIG='''
 #default group name cleanup
-group_rename=^^USA? ?[\\|:] ?,^news.*weather$=news,^family.*kids$=kids
+group_rename=^^USA? ?[\\|:] ?
+group_rename=^news.*weather$=news
+group_rename=^family.*kids$=kids
 
 #default group selection
 groups=^(ENTERTAINMENT|KIDS|MOVIES|MUSIC|NEWS|SPORTS)$
@@ -29,7 +31,8 @@ groups=^(ENTERTAINMENT|KIDS|MOVIES|MUSIC|NEWS|SPORTS)$
 order=LOCAL,SPORTS,NEWS,ENTERTAINMENT,MUSIC,KIDS,MOVIES
 
 #exclude non US and west
-streams=!(CA|CAN|UK|GB|ES)[: ][: ],! \\(?west\\)?
+streams=!(CA|CAN|UK|GB|ES)[: ][: ]
+streams=! \\(?west\\)?
 
 #to include your local stations, insert names of cities or call signs of your stations
 streams=mycity,CALLSIGN
@@ -63,7 +66,7 @@ class Config:
         server_port=(int,5004),
         tuner_count=(int,4),
         upper=(int,1),
-        cmd=(str,'ffmpeg -hide_banner -loglevel error -i %s -c copy -copyts -f mpegts pipe:1'),
+        cmd=(str,'ffmpeg -hide_banner -loglevel error -user_agent tuner -i %s -c copy -c:a ac3 -copyts -f mpegts pipe:1'),
         timeout=(int,0),
         delay=(int,0),
         direct=(int,0),
@@ -74,7 +77,6 @@ class Config:
         auto_map=(int,1),
         format=(str,'http://%s:%s/%s/%s/%s'),
         groups=(str,''),
-        groups_exclude=(str,''),
         rename=(str,''),
         group_rename=(str,''),
         streams=(str,''),
@@ -126,9 +128,7 @@ class Config:
 
             #parse filter args
             # channel group regexes, !pattern to exclude
-            self.groups=upper(self.groups).split(',')
-            self.groups_exclude=[p[1:] for p in self.groups if p.startswith('!')]
-            self.groups=[p for p in self.groups if p and not p.startswith('!') ]
+            self.groups=[p for p in upper(self.groups).split(',') if p]
             # channel name regexs to include or exclude if !pattern regardless of group
             self.streams=upper(self.streams).split(',')
             self.streams_exclude=[p[1:] for p in self.streams if p.startswith('!')]
@@ -400,7 +400,7 @@ class Data:
                     #id:[renamed group, selected]
                     self.source_groups.setdefault(url,dict())[i]=[g,False]
                     #select groups by filters
-                    if any(re.search(p,g) for p in self.config.groups) and not any(re.search(p,g) for p in self.config.groups_exclude):
+                    if any(re.search(p,g) for p in self.config.groups):
                         self.source_groups[url][i][1]=True
                 #select streams by group or filter
                 streams_in=[ s for s in self.streams_cache[url] if \
@@ -735,15 +735,33 @@ class Handler(http.server.BaseHTTPRequestHandler):
                         html+='\n'.join('<option value="%s">'%g[0].replace('|','\\|') for g in sorted(sg.values()))
                     html+='''</datalist>'''
                     html+='''<form method=post><p><table>
-                    <tr><th>group rename:</th><td><input type=checkbox title='match at start' name=group_rename_start><input type=text size=32 title='remove matching text from group name' name=group_rename><input type=checkbox title='match at end' name=group_rename_end></td>
-                    <td> to <input type=text title='replace matching text with' name=group_rename_to></td></tr>
-                    <tr><th>group:</th><td><input type=checkbox title='match at start' name=group_start><input type=text size=32 name=group list=group-select><input type=checkbox title='match at end' name=group_end></td></tr>
-                    <tr><th>streams:</th><td><input type=checkbox title='match at start' name=stream_start><input type=text size=32 name=stream><input type=checkbox title='match at end' name=stream_end></td>
-                    <td><input type=checkbox title='exclude matching streams' name=stream_exclude>exclude</td></tr>
-                    <tr><th>rename:</th><td><input type=checkbox title='match at start' name=rename_start><input type=text size=32 title='remove matching text from name' name=rename><input type=checkbox title='match at end' name=rename_end></td>
-                    <td> to <input type=text title='replace matching text with' name=rename_to></td></tr>
-                    <tr><th>replace:</th><td><input type=checkbox title='match at start' name=replace_start><input type=text title='if channel matching pattern exists, replace channels matching name without pattern' size=32 name=replace><input type=checkbox title='match at end' name=replace_end></td></tr>
-                    <tr><th>comment:</th><td><input type=text size=40 name=comment></td><td><input type=submit value="add filter"></tr>
+                    <tr><th>group rename:</th>
+                    <td><input type=checkbox title='match at start' name=group_rename_start></td>
+                    <td><input type=text size=40 title='remove matching text from group name' name=group_rename></td>
+                    <td><input type=checkbox title='match at end' name=group_rename_end></td>
+                    <td>to</td><td><input type=text title='replace matching text with' name=group_rename_to></td></tr>
+                    <tr><th>group select:</th><td><input type=checkbox title='match at start' name=group_start></td>
+                    <td><input type=text size=40 name=group list=group-select></td>
+                    <td><input type=checkbox title='match at end' name=group_end></td></tr>
+                    <tr><th>stream select:</th>
+                    <td><input type=checkbox title='match at start' name=stream_start></td>
+                    <td><input type=text size=40 name=stream></td>
+                    <td><input type=checkbox title='match at end' name=stream_end></td>
+                    <td><input type=checkbox title='exclude matching streams' name=stream_exclude></td><td>exclude</td></tr>
+                    <tr><th>stream rename:</th>
+                    <td><input type=checkbox title='match at start' name=rename_start></td>
+                    <td><input type=text size=40 title='remove matching text from name' name=rename></td>
+                    <td><input type=checkbox title='match at end' name=rename_end></td>
+                    <td>to</td><td><input type=text title='replace matching text with' name=rename_to></td></tr>
+                    <tr><th>stream replace:</th>
+                    <td><input type=checkbox title='match at start' name=replace_start></td>
+                    <td><input type=text title='if channel matching pattern exists, replace channels matching name without pattern' size=40 name=replace></td>
+                    <td><input type=checkbox title='match at end' name=replace_end></td></tr>
+                    <tr><th>comment:</th>
+                    <td></td>
+                    <td><input type=text size=40 name=comment></td>
+                    <td colspan=2></td>
+                    <td><input type=submit value="add filters"></td></tr>
                     </table></p></form>'''
                 
                 #serve logs
@@ -835,7 +853,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
         if config.config_file:
             html+='''
             <p>&nbsp;</p><p><form method=post>
-            <textarea style=font-family:monospace name=config cols=100 rows=20>'''
+            <textarea style=font-family:monospace name=config cols=80 rows=25>'''
             html+=config.get_config()
             html+='''</textarea><br>
             <input type=submit value="save config">
