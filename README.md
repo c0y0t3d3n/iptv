@@ -80,8 +80,3 @@ Options can set in config or environment
 `LOGDEPTH==<n>` retain `n` messages on the log page.\
 `FORMAT=<string>` URL format for requesting a stream from the source. %s substitutions will be host, port, username, passsword, stream ID.\
 `CMD=` will override the command used to fetch and remux the stream. Whatever you use should accept a stream URL as `%s` and pipe to STDOUT.
-
-Plex currently has an issue with streams containing AAC audio (HE-AAC in particular) so you may want to try\
-`CMD=ffmpeg -hide_banner -loglevel error -i %s -c copy -c:a ac3 -copyts -f mpegts pipe:1`\
-to transcode all audio to AC3.
-
