@@ -25,7 +25,7 @@ If you want to use the tuner with Jellyfin or an IPTV player, use the M3U and XM
 To filter the lineup to only channels with EPG data, set `MIN_SOURCES=<n>` where `<n>` is the minimum number of EPG sources a channel must have to be in the lineup.
 
 ## Caching
-The tuner can cache accounts, lineups, and xmltv data to reduce how often it has to hit the API endpoints of the sources. Account status will be refreshed when the cache expires, the reload button is pressed, Plex requests a channel scan, or a stream failure occur (as this usually means the account is overused). Lineups will be refreshed when the cache expires, when the reload button is pressed or Plex requests a channel scan. XMLTV will be refreshed when lineups are refreshed, but XMLTV is not fetched from the source until requested by the client. 
+The tuner can cache accounts, lineups, and xmltv data to reduce how often it has to hit the API endpoints of the sources. A refresh will occur when the cache expires, when the reload button is pressed, or Plex requests a channel scan. XMLTV cache will be cleared when lineups are refreshed, but XMLTV is not fetched from the source until requested by the client. 
 
 Account caching is disabled by default, but should be enabled if you have multiple accounts per source to avoid potentially being banned. To enable caching, set `CACHE=<seconds>` where `<seconds>` is how long to cache account data.
 
@@ -56,7 +56,7 @@ Put xtream codes in the config as:
 
 `URL USER PASS PRI`
 
-PRI is optional and defaults to 0. Lower number is higher priority and will be preferred unless full.
+PRI is optional and defaults to 0. Lower number is higher priority and will be preferred unless full. If a stream failure occurs and account caching is enabled the failing source will be deprioritized until refresh. To disable this behavior set `AUTO_PRI=0`
 
 If you have a large number of accounts for a source, you may not want to probe all of them on every rescan.\
 Set `CHECK=<n>` to randomly select at most `<n>` accounts per source.
@@ -74,6 +74,7 @@ Options can set in config or environment
 `CACHE=<seconds>` cache account status for the specified number of seconds.\
 `LINEUP_CACHE=<seconds>` cache lineup and XMLTV for the specidied number of seconds. Defualt 86400.\
 `AUTO_MAP=0` disable automapping of channels across source lineups by EPG ID.\
+`AUTO_PRI=0` disable auto priority adjust of source on stream failure. Cache will be cleared to force refresh.\
 `MIN_SOURCES=<n>` require a channel have a minimum number of sources to be included in the lineup. 1 will require channels have EPG IDs.\
 `TIMEOUT=<seconds>` set a timeout on refreshing each account and lineup.\
 `DELAY=<seconds>` add a delay between refreshing each accoumnt.\
