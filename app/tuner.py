@@ -75,6 +75,7 @@ class Config:
         lineup_cache=(int,86400),
         min_sources=(int,0),
         auto_map=(int,1),
+        auto_pri=(int,1),
         format=(str,'http://%s:%s/%s/%s/%s'),
         groups=(str,''),
         rename=(str,''),
@@ -211,7 +212,7 @@ class Config:
 
 class Account:
     '''struct for xtream codes account and status'''
-    def __init__(self,username,password,priority=0,active_conns=0,max_conns=0,status=None,expires=None,info={}):
+    def __init__(self,username,password,priority=0,active_conns=0,max_conns=0,status=None,expires=None,info={},source=None):
         self.username=username
         self.password=password
         self.priority=int(priority) if priority else 0
@@ -220,6 +221,7 @@ class Account:
         self.status=status
         self.expires=datetime.fromtimestamp(int(expires)) if expires else None
         self.info=info
+        self.source=source
 
     def active(self):
         return str(self.status).lower()=='active'
@@ -269,7 +271,7 @@ class Data:
                 info['user_info']['max_connections'], 
                 info['user_info']['status'], 
                 info['user_info']['exp_date'], 
-                info
+                info, url
             )
         except Exception as e:
             # if account is not valid info will not parse so return 0/0 slots available and raw info
@@ -312,6 +314,11 @@ class Data:
         )
         logging.debug('select: %s',selected_sources)
         return selected_sources
+
+    def adjust_priority(self,source,adj=1):
+        #adjust priority of sourxe
+        for a in self.accounts[source]:
+            a.priority+=adj
 
     def fetch_lineup(self,selected_sources):
         # fetch a lineup from each source, filter/modify channel names, and merge linueps
@@ -561,8 +568,12 @@ class Stream:
                         break
                     handler.wfile.write(data)
                 # cmd exited likely source dropped the stream
-                logging.warning('%s pid %s exited',handler.client_address, cmd.pid)
-                self.data.last_refresh=0 #invalidate cache as account may be full
+                logging.warning('%s pid %s stream failed',handler.client_address, cmd.pid)
+                if self.config.auto_pri:
+                    # drop priority for this source on fail
+                    self.data.adjust_priority(a.source)
+                else:
+                    self.data.last_refresh=0 #invalidate cache as account may be full
             except BrokenPipeError: 
                 logging.debug('stream: %s pid %s disconnected',handler.client_address, cmd.pid)
             except Exception as e:
@@ -647,10 +658,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 logging.info('%s stream %s'%(self.client_address,k))
                 if config.direct:
                     # send the URL to plex
-                    url,a=stream.get_stream(k)
+                    url=stream.get_stream(k)[0]
                     if url:
                         logging.info('%s redirect to %s', self.client_address, url)
-                        a.active_conns+=1 #update cached account
                         self.send(redirect=url)
                     else:
                         self.data.last_refresh=0
