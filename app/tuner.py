@@ -13,7 +13,7 @@ import random
 from logging.handlers import QueueHandler
 from collections import deque
 from urllib.parse import quote,unquote
-from html import escape,unescape
+from html import escape
 from threading import Lock
 from io import StringIO, BytesIO
 import xmltv
