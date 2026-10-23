@@ -634,7 +634,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 # config text was submitted
                 if key == 'config':
                     fetch=False
-                    config.write(unescape(val))
+                    config.write(val)
                 # url/hash was submitted, add account and rescan
                 if key == 'add':
                     config.add_account(val)
