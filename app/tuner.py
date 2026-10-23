@@ -13,6 +13,7 @@ import random
 from logging.handlers import QueueHandler
 from collections import deque
 from urllib.parse import quote,unquote
+from html import escape,unescape
 from threading import Lock
 from io import StringIO, BytesIO
 import xmltv
@@ -633,7 +634,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 # config text was submitted
                 if key == 'config':
                     fetch=False
-                    config.write(val)
+                    config.write(unescape(val))
                 # url/hash was submitted, add account and rescan
                 if key == 'add':
                     config.add_account(val)
@@ -723,27 +724,27 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     html+='''<p><table>'''
                     if data.lineup:
                         for g in data.group_order:
-                            html+='<tr/><tr><th colspan=2 id="%s">%s</th></tr>\n'%(quote(g),g)
+                            html+='<tr/><tr><th colspan=2 id="%s">%s</th></tr>\n'%(escape(quote(g)),escape(g))
                             for k,l in [(k,l) for k,l in data.lineup.items() if l['GuideCategory']==g]:
                                 html+='<tr><td>%s</td><td><a href="%s">%s</a></td><td>%s</td></tr>\n'%(
-                                    ''.join(s.split('//')[1][0] for s in l['sources']),
-                                    l['URL'],
-                                    l['GuideName'],
-                                    l['GuideID'] if l['GuideID'] else ''
+                                    escape(''.join(s.split('//')[1][0] for s in l['sources'])),
+                                    escape(l['URL']),
+                                    escape(l['GuideName']),
+                                    escape(l['GuideID']) if l['GuideID'] else ''
                                 )
                         html+='''</table></p>'''
                     html+='''<p><table>'''
                     for s,sg in data.source_groups.items():
                         html+='<tr><th>%s</th><td>%s</td></tr>'%(
                             s,
-                            ','.join('<a href="#%s">%s</a>'%(quote(g[0]),g[0]) if g[1] else g[0] for g in sorted(sg.values()))
+                            ','.join('<a href="#%s">%s</a>'%(escape(quote(g[0])),escape(g[0])) if g[1] else escape(g[0]) for g in sorted(sg.values()))
                         )
                     html+='''</table></p>'''
                     # filter builder
                     html+='''<datalist id=group-select>'''
                     for s,sg in data.source_groups.items():
                         #escape | character, this is common in group names and will break regexes
-                        html+='\n'.join('<option value="%s">'%g[0].replace('|','\\|') for g in sorted(sg.values()))
+                        html+='\n'.join('<option value="%s">'%escape(g[0].replace('|','\\|')) for g in sorted(sg.values()))
                     html+='''</datalist>'''
                     html+='''<form method=post><p><table>
                     <tr><th>group rename:</th>
@@ -780,7 +781,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     html=self.html_start()
                     html+='''<p>'''
                     for l in LOGQ:
-                        html+=l.msg+'<br>'
+                        html+=escape(l.msg)+'<br>'
                     html+='''</p>'''
 
                 # serve status page
@@ -803,7 +804,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                             html+='<tr><th colspan=7>%s</th><td>(%s streams)</td></tr>'%(url,
                             len(list(s for s in data.lineup.values() if url in s['sources'])) if data.lineup else '0')
                             for a in accts:
-                                html+='<tr><td></td><td>%s</td><td>%s</td><td>%s</td><td>%s/%s</td><td>%s</td><td>%s</td></tr>\n'%a.data()
+                                html+='<tr><td></td><td>%s</td><td>%s</td><td>%s</td><td>%s/%s</td><td>%s</td><td>%s</td></tr>\n'%tuple(escape(str(d)) for d in a.data())
                     html+='''<tr><td><form method=post><input type=submit name=reload value=reload></form></td></tr>'''
                     html+='''
                         <tr><td colspan=8><form method=post>
@@ -823,7 +824,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     html+='''</table></p>'''
                     html+='''<p><table>'''
                     for (k,v) in sorted(config.reload().items()):
-                        html+='<tr><th>%s</th><td>%s</td></tr>\n'%(k,v)
+                        html+='<tr><th>%s</th><td>%s</td></tr>\n'%(escape(k),escape(str(v)))
                     html+='''</table></p>'''
 
                 #invalid route
@@ -865,7 +866,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
             html+='''
             <p>&nbsp;</p><p><form method=post>
             <textarea style=font-family:monospace name=config cols=80 rows=25>'''
-            html+=config.get_config()
+            html+=escape(config.get_config())
             html+='''</textarea><br>
             <input type=submit value="save config">
             </form></p>'''
