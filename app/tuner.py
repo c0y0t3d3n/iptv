@@ -84,6 +84,7 @@ class Config:
         streams_exclude=(str,''),
         replace=(str,''),
         order=(str,''),
+        map=(str,''),
         user_agent=(str,''),
         buffer=(int,1024*1024) #buffer size for streaming
     )
@@ -143,6 +144,8 @@ class Config:
             self.replace=[p for p in upper(self.replace).split(',') if p]
             # ordering of the lineup. Groups matching each pattern will be output in the order of the patterns. Remaining groups will be at end
             self.order=[p for p in upper(self.order).split(',') if p]
+            # parse overrides for epg sources
+            self.map=dict(p.split('=') for p in upper(self.map).split(',') if p)
 
             # return config for info 
             return dict((e,getattr(self,e,None)) for e in self.env_vars)
@@ -275,7 +278,7 @@ class Data:
             )
         except Exception as e:
             # if account is not valid info will not parse so return 0/0 slots available and raw info
-            logging.warning('%s checking %s %s %s %s',e,url,a.username,a.password,a.info)
+            logging.warning('refresh: %s checking %s %s %s %s',e,url,a.username,a.password,a.info)
             return Account(a.username,a.password,a.priority,None,None,str(info),None,info)
             
     def refresh_accts(self,accounts=None,force_refresh=False):
@@ -289,7 +292,7 @@ class Data:
                 for url,accts in accounts.items():
                     if self.config.check:
                         accts=random.sample(accts,min(self.config.check,len(accts)))
-                    logging.info('refreshing %s',url)
+                    logging.info('refresh: %s',url)
                     for a in accts:
                         ra=self.check_acct(url,a)
                         logging.debug('refresh: %s',ra.info)
@@ -315,17 +318,12 @@ class Data:
         logging.debug('select: %s',selected_sources)
         return selected_sources
 
-    def adjust_priority(self,source,adj=1):
-        #adjust priority of sourxe
-        for a in self.accounts[source]:
-            a.priority+=adj
-
     def fetch_lineup(self,selected_sources):
         # fetch a lineup from each source, filter/modify channel names, and merge linueps
         self.groups_cache={}
         self.streams_cache={}
         for (url,a) in selected_sources:
-            logging.info('fetching lineup from %s',url)
+            logging.info('lineup: fetch from %s',url)
             try:
                 #fetch from selected source account, strip commas as plex does not like them and we can't filter on them
                 self.groups_cache[url]=dict( (e['category_id'],upper(e['category_name'].replace(',',''))) for e in self.xtream_request(url,a,'get_live_categories') )
@@ -333,15 +331,15 @@ class Data:
                 for s in self.xtream_request(url,a,'get_live_streams'):
                     s['name']=upper(s['name'].replace(',',''))
                     streams.append(s)
-                logging.debug('fetch: %s %s groups %s streams',url,len(self.groups_cache[url]),len(self.streams_cache[url]))
+                logging.debug('lineup: %s %s groups %s streams',url,len(self.groups_cache[url]),len(self.streams_cache[url]))
             except Exception as e:
-                logging.warning('%s fetching %s %s %s',e,url,a.username,a.password)
+                logging.warning('lineup: %s for %s %s %s',e,url,a.username,a.password)
                 continue
 
     def fetch_xmltv(self,selected_sources):
         self.xmltv_cache={'data':{},'channels':{},'programs':[]}
         for url, a in selected_sources:
-            logging.info('fetching XMLTV from %s',url)
+            logging.info('xmltv: fetch from %s',url)
             try:
                 xmlin=StringIO(self.xtream_request(url,a,path='xmltv.php',raw=True))
                 xmlin.seek(0)
@@ -361,9 +359,9 @@ class Data:
                         p['channel'] = p['channel'].lower()
                         self.xmltv_cache['programs'].append(p)
                         n+=1
-                logging.debug('XMLTV: fetched %s programs from %s'%(n,url))
+                logging.debug('xmltv: fetched %s programs from %s'%(n,url))
             except Exception as e:
-                logging.warning('%s fetching XMLTV from %s %s %s',e,url,a.username,a.password)
+                logging.warning('xmltv: %s for %s %s %s',e,url,a.username,a.password)
 
     def build_xmltv(self):
         ids=set(l['GuideID'] for l in self.lineup.values()) #EPG ID of channels in lineup
@@ -386,7 +384,7 @@ class Data:
         xmlout=BytesIO()
         writer.write(xmlout)
         xmlout.seek(0)
-        logging.info('XMLTV has %s channels, %s programs',nc,np)
+        logging.info('xmltv: %s channels, %s programs',nc,np)
         return xmlout.read().decode()
         
     def build_lineup(self):
@@ -425,13 +423,13 @@ class Data:
                         else:
                             r=''
                         n=re.sub(p,r,n)
-                    # each stream is name, EPG ID, source stream ID, group name. Filter bogus EPG IDs
-                    streams.append(
-                        [n,
-                        s['epg_channel_id'].lower() if s['epg_channel_id'] and ' ' not in s['epg_channel_id'] else None,
-                        s['stream_id'],
-                        self.source_groups[url].get(s['category_id'],[str(s['category_id'])])[0]]
-                    )
+                    # each stream is name, EPG ID, group name, source stream ID,
+                    streams.append([
+                        n,
+                        s['epg_channel_id'].lower() if s['epg_channel_id'] else None,
+                        self.source_groups[url].get(s['category_id'],[str(s['category_id'])])[0],
+                        s['stream_id']
+                    ])
                 #replace channels without pattern if channel with pattern exists
                 for p in self.config.replace:
                     replaced=set()
@@ -454,6 +452,8 @@ class Data:
                             logging.debug('lineup: %s mapped %s to %s',s[1],k,ids[s[1]])
                             k=ids[s[1]]
                     #map EPG IDs to key
+                    if s[0] in self.config.map:
+                        s[1]=self.config.map[s[0]].lower()
                     if s[1]:
                         ids[s[1]]=k
                     #create channel and add this source
@@ -461,10 +461,10 @@ class Data:
                                         'GuideNumber':s[0],
                                         'GuideName':s[0], 
                                         'GuideID':s[1],
-                                        'GuideCategory':s[3],
+                                        'GuideCategory':s[2],
                                         'sources':{},
                                         'URL':'http://%s:%s/stream/%s'%(self.config.server_ip,self.config.server_port,quote(k))
-                                    })['sources'][url]=s[2]
+                                    })['sources'][url]=s[3]
                     #ensure a guide ID if possible
                     if not lineup[k]['GuideID']:
                         lineup[k]['GuideID']=s[1]
@@ -486,12 +486,12 @@ class Data:
                         ordered_groups[g]=True
                         logging.debug('lineup: ordering group %s',g)
                         self.group_order.append(g)
-            logging.info('lineup has %s groups, %s streams',len(ordered_groups),len(self.lineup))
+            logging.info('lineup: %s groups, %s streams',len(ordered_groups),len(self.lineup))
         except Exception as e:
             try:
-                logging.warning('build lineup: %s, last pattern was %s',e,p)
+                logging.warning('lineup: %s, last pattern was %s',e,p)
             except:
-                logging.warning('build lineup: %s',e)
+                logging.warning('lineup: %s',e)
         return self.lineup
 
     def rescan(self,force_rescan=None,get_xmltv=False):
@@ -570,10 +570,11 @@ class Stream:
                 # cmd exited likely source dropped the stream
                 logging.warning('%s pid %s stream failed',handler.client_address, cmd.pid)
                 if self.config.auto_pri:
-                    # drop priority for this source on fail
-                    self.data.adjust_priority(a.source)
+                    # drop priority for this source on fail, will be reset on refresh
+                    for sa in self.data.accounts[a.source]:
+                        sa.priority+=1
                 else:
-                    self.data.last_refresh=0 #invalidate cache as account may be full
+                    self.data.last_refresh=0 #expire cache if 'best' account still fails
             except BrokenPipeError: 
                 logging.debug('stream: %s pid %s disconnected',handler.client_address, cmd.pid)
             except Exception as e:
@@ -584,7 +585,7 @@ class Stream:
             logging.info('%s pid %s stop (%d)', handler.client_address, cmd.pid, cmd.returncode)
             del self.procs[cmd.pid]
         else:
-            self.data.last_refresh=0
+            self.data.last_refresh=0 #expire cache if no good account found 
             handler.send(code=503) #no source for stream
 
 
@@ -660,10 +661,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     # send the URL to plex
                     url=stream.get_stream(k)[0]
                     if url:
-                        logging.info('%s redirect to %s', self.client_address, url)
+                        logging.info('%s redirected to %s', self.client_address, url)
                         self.send(redirect=url)
                     else:
-                        self.data.last_refresh=0
+                        self.data.last_refresh=0 #expire cache if nothing usable
                         self.send('no source for %s' % k,code=503)
                     return
                 else: 
