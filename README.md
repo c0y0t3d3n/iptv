@@ -9,33 +9,18 @@
 # Getting started
 A `docker-compose.yaml` and `Dockerfile` to build/run a tuner container is included. Make sure you set `SERVER_IP` in `docker-compose.yaml`. A default config will be created if it does not exist.
 
-To add the tuner to Plex you need to manually enter the SERVER_IP:SERVER_PORT and it should appear. When you rescan channels in Plex it reloads the config and fetches lineups. Once you have the group and channel name filters set properly Plex should be able to map most of them to one of your local cable/satellite provider lineups. Any manual mappings you do should stick even if you change IPTV providers, as long as you adjust the filters. If you are using Jellyfin or another IPTV player, see <B>M3U and XMLTV</b>.
+Visit `http://SERVER_IP:SERVER_PORT/` for status, lineup with stream links, logs, and to edit the config. Below the accounts status is an import field. Paste xtream codes as `URL USERNAME PASSWORD` or a URL and hit 'add account' to import it.
 
-Visit `http://SERVER_IP:SERVER_PORT/` for status, lineup with stream links, logs, and to edit the config. Below the config editor is a link to IPTVLookup and an import field. Paste the URL of an IPTVLookup account details page and hit 'add account' to import it.
+To add the tuner to Plex you need to manually enter the `SERVER_IP:SERVER_PORT` and it should appear. When you rescan channels in Plex it refreshes accounts and fetches lineups. Once you have the group and channel name filters set properly Plex should be able to map most of them to one of your local cable/satellite provider lineups. Any manual mappings you do should stick even if you change IPTV providers, as long as you adjust the filters.
 
 There is a list of groups provided by each source and a basic filter builder at the bottom of the lineup page. Choose a group to add from the dropdown or enter a pattern to match. Checkboxes select only matching at start or end of name; select both for exact match. You can also enter patterns to include or exclude streams by name, rename streams, and replace duplicates.
 
-## Automapping
-
-Channels from each source will be merged into a single lineup by combining channels with the same name or same EPG ID. Matching names take priority over EPG IDs. To disable matching by EPG ID, set `AUTO_MAP=0`\
-In the lineup the letters before each stream link represent the source(s) providing that channel. 
-
-## M3U and XMLTV
-If you want to use the tuner with Jellyfin or an IPTV player, use the M3U and XMLTV links on the status page. XMLTV will be fetched from all sources and filtered to only channels in the lineup.\
-To filter the lineup to only channels with EPG data, set `MIN_SOURCES=<n>` where `<n>` is the minimum number of EPG sources a channel must have to be in the lineup.
-
-## Caching
-The tuner can cache accounts, lineups, and xmltv data to reduce how often it has to hit the API endpoints of the sources. A refresh will occur when the cache expires, when the reload button is pressed, or Plex requests a channel scan. XMLTV cache will be cleared when lineups are refreshed, but XMLTV is not fetched from the source until requested by the client. 
-
-Account caching is disabled by default, but should be enabled if you have multiple accounts per source to avoid potentially being banned. To enable caching, set `CACHE=<seconds>` where `<seconds>` is how long to cache account data.
-
-Lineups and XMLTV are by default cached for 24 hours (86400 seconds). To change this set `LINEUP_CACHE=<seconds>`. 0 disables lineup and XMLTV caching.
+If you are using Jellyfin or another IPTV player, use the M3U and XMLTV links on the status page. XMLTV is fetched from all sources and filtered to only channels in the lineup.
 
 # Configuration
 Keys are case-insensitive. Repeated keys and comma-seperated values will create a list of values for the key. All match patterns and replace strings are by default uppercased. This generally makes filtering and merging easier but limits what regexes you can use. Set `UPPER=0` in config to disable uppercasing.
 
 ## Filtering
-
 Filters are applied in the following order:
 
 `GROUP_RENAME=` regex patterns to strip or replace in group names. `pattern=string` will replace pattern with string. This is applied before group selection.
@@ -51,6 +36,20 @@ Example: `REPLACE= UHD$` will turn 'ABC UHD' into 'ABC', removing any streams na
 
 `ORDER=` order of groups in the lineup. Groups matching the first pattern will be followed by groups matching the next and so on. Groups that do not match any pattern will be placed last.
 
+## Automapping
+Channels from each source will be merged into a single lineup by combining channels with the same name or same EPG ID. Matching names take priority over EPG IDs. To disable matching by EPG ID, set `AUTO_MAP=0`
+
+The characters before each stream link in the lineup represent the source(s) providing that channel, and the associated EPG ID follows the channel name. To set or override the EPG ID for a channel, specify `map=channel=epgid`.
+
+To filter the lineup to only channels with EPG data, set `MIN_SOURCES=<n>` where `<n>` is the minimum number of EPG sources a channel must have to be in the lineup.
+
+## Caching
+The tuner can cache accounts, lineups, and xmltv data to reduce how often it has to hit the API endpoints of the sources. A refresh will occur when the cache expires, when the reload button is pressed, or Plex requests a channel scan. XMLTV cache will be cleared when lineups are refreshed, but XMLTV is not fetched from the source until requested by the client. 
+
+Account caching is disabled by default, but should be enabled if you have multiple accounts per source to avoid potentially being banned. To enable caching, set `CACHE=<seconds>` where `<seconds>` is how long to cache account data.
+
+Lineups and XMLTV are by default cached for 24 hours (86400 seconds). To change this set `LINEUP_CACHE=<seconds>`. 0 disables lineup and XMLTV caching.
+
 ## Accounts
 Put xtream codes in the config as:
 
@@ -61,9 +60,7 @@ PRI is optional and defaults to 0. Lower number is higher priority and will be p
 If you have a large number of accounts for a source, you may not want to probe all of them on every rescan.\
 Set `CHECK=<n>` to randomly select at most `<n>` accounts per source.
 
-
 # Command line and options
-
 `./tuner.py config_file`
 
 Options can set in config or environment
