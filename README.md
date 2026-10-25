@@ -44,7 +44,7 @@ The characters before each stream link in the lineup represent the source(s) pro
 To filter the lineup to only channels with EPG data, set `MIN_SOURCES=<n>` where `<n>` is the minimum number of EPG sources a channel must have to be in the lineup.
 
 ## Caching
-The tuner can cache accounts, lineups, and xmltv data to reduce how often it has to hit the API endpoints of the sources. A refresh will occur when the cache expires, when the reload button is pressed, or Plex requests a channel scan. XMLTV cache will be cleared when lineups are refreshed, but XMLTV is not fetched from the source until requested by the client. 
+The tuner can cache accounts, lineups, and xmltv data to reduce how often it has to hit the API endpoints of the sources. A refresh will occur when the cache expires, when the Rescan button is pressed, or Plex requests a channel scan. XMLTV cache will be cleared when lineups are refreshed, but XMLTV is not fetched from the source until requested by the client. 
 
 Account caching is disabled by default, but should be enabled if you have multiple accounts per source to avoid potentially being banned. To enable caching, set `CACHE=<seconds>` where `<seconds>` is how long to cache account data.
 
