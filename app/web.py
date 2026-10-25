@@ -1,6 +1,6 @@
 #!/usr/bin/python3
 import http.server
-from urllib.parse import quote, unquote, urlsplit
+from urllib.parse import unquote
 
 class RequestHandler(http.server.BaseHTTPRequestHandler):
     '''HTTP request handler'''
