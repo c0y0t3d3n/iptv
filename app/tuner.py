@@ -183,8 +183,9 @@ class Config:
             try:
                 with open(self.config_file,'w') as f:
                     f.write(text)
+                logging.info('wrote %s',self.config_file)
             except Exception as e:
-                logging.error('%s writing config',e)
+                logging.error('%s writing %s',e,self.config_file)
 
     def append(self,text):
         with self.lock:
@@ -202,15 +203,15 @@ class Config:
         if info:
             self.append(info)
 
-    def add_filter(self,filter_type,filter_text,rename_to=None,start=False,end=False,exclude=False,comment=''):
+    def add_filter(self,filter_type,filter_text,start=False,end=False,exclude=False,rename_to=None,comment=''):
+        if exclude:
+            filter_text='!'+filter_text
         if start:
             filter_text='^'+filter_text
         if end:
             filter_text+='$'
         if rename_to:
             filter_text+='='+rename_to
-        if exclude:
-            filter_text='!'+filter_text
         self.append(filter_type+'='+filter_text+'#'+comment)
 
 
@@ -525,7 +526,7 @@ class Data:
         return m3u
 
 
-class Stream:
+class StreamProxy:
     '''streaming subprocess handler'''
     def __init__(self,config,data):
         self.config=config
@@ -546,327 +547,389 @@ class Stream:
             logging.debug(e)
             return None,None
 
-    def serve_stream(self,k,handler):
-        url,a=self.get_stream(k)
-        if url:
-            # remux with ffmpeg
-            args = self.config.cmd % url
-            logging.info('%s starting %s', handler.client_address, args)
-            try:
-                cmd = subprocess.Popen(args.split(), shell=False, stdout=subprocess.PIPE)
-                logging.info('%s pid %s started', handler.client_address, cmd.pid)
-                self.procs[cmd.pid]=(handler.client_address,k,args)
-            except Exception as e:
-                logging.exception(e)
-                handler.send(str(e),code=500)
-                return
-            handler.send() #HTTP 200 and start sending stream data
-            try:
-                a.active_conns+=1 #update cached account
-                while cmd.poll() is None: #cmd exited
-                    data = cmd.stdout.read(int(self.config.buffer))
-                    if not data: # cmd exited, source dropped the stream
-                        break
-                    handler.wfile.write(data)
-                # cmd exited likely source dropped the stream
-                logging.warning('%s pid %s stream failed',handler.client_address, cmd.pid)
-                if self.config.auto_pri:
-                    # drop priority for this source on fail, will be reset on refresh
-                    for sa in self.data.accounts[a.source]:
-                        sa.priority+=1
-                else:
-                    self.data.last_refresh=0 #expire cache if 'best' account still fails
-            except BrokenPipeError: 
-                logging.debug('stream: %s pid %s disconnected',handler.client_address, cmd.pid)
-            except Exception as e:
-                logging.exception(e)
-            cmd.stdout.close() # stop cmd if running
-            cmd.wait() # wait for exit
-            a.active_conns-=1
-            logging.info('%s pid %s stop (%d)', handler.client_address, cmd.pid, cmd.returncode)
-            del self.procs[cmd.pid]
-        else:
-            self.data.last_refresh=0 #expire cache if no good account found 
-            handler.send(code=503) #no source for stream
+    def proxy_stream(self,k,url,acct,handler):
+        # remux with ffmpeg
+        args = self.config.cmd % url
+        logging.info('%s starting %s', handler.client_address, args)
+        try:
+            cmd = subprocess.Popen(args.split(), shell=False, stdout=subprocess.PIPE)
+            logging.info('%s pid %s started', handler.client_address, cmd.pid)
+            self.procs[cmd.pid]=(handler.client_address,k,args)
+        except Exception as e:
+            logging.exception(e)
+            handler.send(str(e),code=500)
+            return
+        handler.send() #HTTP 200 and start sending stream data
+        try:
+            acct.active_conns+=1 #update cached account
+            while cmd.poll() is None: #cmd exited
+                data = cmd.stdout.read(int(self.config.buffer))
+                if not data: # cmd exited, source dropped the stream
+                    break
+                handler.wfile.write(data)
+            # cmd exited likely source dropped the stream
+            logging.warning('%s pid %s stream failed',handler.client_address, cmd.pid)
+            if self.config.auto_pri:
+                # drop priority for this source on fail, will be reset on refresh
+                for sa in self.data.accounts[acct.source]:
+                    sa.priority+=1
+            else:
+                self.data.last_refresh=0 #expire cache if 'best' account still fails
+        except BrokenPipeError: 
+            logging.debug('stream: %s pid %s disconnected',handler.client_address, cmd.pid)
+        except Exception as e:
+            logging.exception(e)
+        cmd.stdout.close() # stop cmd if running
+        cmd.wait() # wait for exit
+        acct.active_conns-=1
+        logging.info('%s pid %s stop (%d)', handler.client_address, cmd.pid, cmd.returncode)
+        del self.procs[cmd.pid]
 
 
 class Handler(http.server.BaseHTTPRequestHandler):
     '''HTTP request handler'''
+
+    routes={}
+    params={}
+
+    def handle(self, *args, **kwargs):
+        self.response_sent=False
+        self.start_request()
+        super().handle(*args, **kwargs)
+        self.end_request()
+
+    def start_request(self):
+        #define in subclass to do something before every request
+        pass
+
+    def end_request(self):
+        #define in subclass to do something after every request
+        pass
 
     def send(self,html='',redirect=None,code=200):
         self.send_response(302 if redirect and code==200 else code)
         if redirect:
             self.send_header('Location',redirect)
         self.end_headers()
-        self.wfile.write(html.encode())
+        if html: 
+            self.wfile.write(html.encode())
+        self.response_sent=True
 
     def do_POST(self):
-        config=self.server.config
-        data=self.server.data
-
-        # fetch account status and lineup on account add or reload request. Will be set to False if config edit to speed up response time
-        fetch=True 
         # get POST data 
         l=int(self.headers.get('content-length',0))
         body=self.rfile.read(l)
-        params=dict( unquote(p.replace('+',' ')).split('=',1) \
-            if p else (None,None) \
-            for p in body.decode().split('&'))
+        params={}
+        for p in body.decode().split('&'):
+            if p:
+                k,v=unquote(p.replace('+',' ')).split('=',1)
+                params[k]=v
+        self.__handle_request(self.path,params)
+
+    def do_GET(self):
+        #get params from URL
+        parts=self.path.split('?',1)
+        params={}
+        if len(parts)>1:
+            for p in path[1].split('&'):
+                if p:
+                    k,v=unquote(p.replace('+',' ')).split('=',1)
+                    params[k]=v
+        self.__handle_request(parts[0],params)
+
+    def __handle_request(self,path=None,params={}):
+        self.__handle_params(params)
+        if not self.response_sent:
+            self.send(self.__handle_path(path,**params))
+
+    def __handle_params(self,params):
+        #call param handlers if defined
+        # params handler will get (key,value,**params)
+        r=''
         for key,val in params.items():
             try:
-                if val:
-                    # fitler params were submitted
-                    if key == 'group':
-                        config.add_filter('groups',val,start='group_start' in params,end='group_end' in params,comment=params['comment'])
-                        fetch=False
-                    if key == 'stream':
-                        config.add_filter('streams',val,start='stream_start' in params,end='stream_end' in params,exclude='stream_exclude' in params,comment=params['comment'])
-                        fetch=False
-                    if key == 'rename':
-                        config.add_filter('rename',val,start='rename_start' in params,end='rename_end' in params,rename_to=params['rename_to'],comment=params['comment'])
-                        fetch=False
-                    if key == 'group_rename':
-                        config.add_filter('group_rename',val,start='group_rename_start' in params,end='group_rename_end' in params,rename_to=params['group_rename_to'],comment=params['comment'])
-                        fetch=False
-                    if key == 'replace':
-                        config.add_filter('replace',val,start='replace_start' in params,end='replace_end' in params,comment=params['comment'])
-                        fetch=False
-                # config text was submitted
-                if key == 'config':
-                    fetch=False
-                    config.write(val)
-                # url/hash was submitted, add account and rescan
-                if key == 'add':
-                    config.add_account(val)
+                if key in self.params:
+                    r=getattr(self,self.params[key])(key,val,**params)
+                if self.response_sent:
+                    #stop if we sent a response
+                    break
             except Exception as e:
                 logging.exception(e)
                 self.send(str(e),code=500)
-                return
-        #reload config, scan sources if fetch is True, rebuild lineup
-        data.rescan(fetch)
-        #respond like GET of posting page
-        self.do_GET()
-        return
-
-    def do_GET(self):
-        config=self.server.config
-        data=self.server.data
-        stream=self.server.stream
-
-        #serve stream URL or stream data
-        if self.path.startswith('/stream/'):
-            k=unquote(self.path.split('/stream/')[-1])
-            if k in data.lineup:
-                logging.info('%s stream %s'%(self.client_address,k))
-                if config.direct:
-                    # send the URL to plex
-                    url=stream.get_stream(k)[0]
-                    if url:
-                        logging.info('%s redirected to %s', self.client_address, url)
-                        self.send(redirect=url)
-                    else:
-                        self.data.last_refresh=0 #expire cache if nothing usable
-                        self.send('no source for %s' % k,code=503)
-                    return
-                else: 
-                    stream.serve_stream(k,self)
-                    return
-            else:
-                self.send('%s not in lineup' % k,code=404)
-                return
-
-        #serve HDHR data
-        elif self.path=='/discover.json':
-            self.send(json.dumps({
-                "DeviceID": "TUNER",
-                "FriendlyName": "Tuner",
-                "TunerCount": int(config.tuner_count),
-                'BaseURL':'http://%s:%s'%(config.server_ip,config.server_port),
-                'LineupURL':'http://%s:%s/lineup.json'%(config.server_ip,config.server_port),
-            }))
-            return
-
-        elif self.path=='/lineup_status.json':
-            self.send(json.dumps({
-                'ScanInProgress':0,
-                'ScanPossible':1,
-                'Source':'Cable'
-            }))
-            return
-
-        elif self.path=='/lineup.json':
-            data.rescan()
-            self.send(json.dumps(list(data.lineup.values())))
-            return
-
-        #serve M#U/XMLTV
-        elif self.path=='/m3u':
-            data.rescan()
-            self.send('\n'.join(data.generate_m3u()))
-            return
-
-        elif self.path=='/xmltv':
-            data.rescan(get_xmltv=True)
-            if data.xmltv_cache:
-                self.send(data.build_xmltv())
+        return r
+  
+    def __handle_path(self,path,**params):
+        # call the first matching route handler, or the handler for an undefined route, or return a 404
+        # route handler will get (path,**params)
+        routes=self.routes.get(self.command,{})
+        route=[routes[r] for r in routes if r and path.startswith(r)]
+        route=route[0] if len(route) else routes.get(None)
+        r=''
+        try:
+            if route:
+                r=getattr(self,route)(path,**params)
             else:
                 self.send(code=404)
-            return 
+        except Exception as e:
+            logging.exception(e)
+            self.send(str(e),code=500)
+        return r
+        
 
-        #serve HTML pages
+class TunerHandler(Handler):
+    '''handler for tuner app'''
+
+    # paths the client can GET
+    routes={
+        'GET':{
+            '/stream':'get_stream',
+            '/discover.json':'get_discover',
+            '/lineup_status.json':'get_lineup_status',
+            '/lineup.json':'get_lineup_json',
+            '/m3u':'get_m3u',
+            '/xmltv':'get_xmltv',
+            '/lineup':'get_lineup',
+            '/log':'get_log',
+            '/':'get_status'
+        },
+        'POST':{
+            '/lineup.post':'rescan'
+        }
+    }
+
+    # POST routes are same as GET (params are handled independently)
+    routes['POST'].update(routes['GET'].copy())
+
+    #params with handler methods
+    params={
+        'rescan':'rescan',
+        'config':'save_config',
+        'add_account':'add_account',
+        'groups':'add_filter',
+        'group_rename':'add_filter',
+        'streams':'add_filter',
+        'rename':'add_filter',
+        'replace':'add_filter'
+    }
+
+    def start_request(self):
+        #populate context from server
+        self.config=self.server.config
+        self.data=self.server.data
+        self.streamproxy=self.server.streamproxy
+   
+    def rescan(self,*args,**kwargs):
+        #trigger a full account/lineup rescan
+        logging.info('rescanning...')
+        self.data.rescan(force_rescan=True)
+
+    def add_filter(self,key,val,**params):
+        if val:
+            self.config.add_filter(key,val,
+                start=key+'_start' in params,
+                end=key+'_end' in params,
+                exclude=key+'_exxclude' in params,
+                rename_to=params.get(key+'_to'),
+                comment=params['comment']
+            )
+            self.data.rescan() #rebuild lineup
+    
+    def save_config(self,key,val,**params):
+        # config text was submitted
+        self.config.write(val)
+        self.data.rescan()
+    
+    def add_account(self,key,val,**params):
+        # url/hash was submitted, add account and rescan
+        if val:
+            self.config.add_account(val)
+            #reload config, scan sources if fetch is True, rebuild lineup
+            self.data.rescan(True)
+
+    def get_stream(self,path,**params):
+        #serve stream URL or stream data
+        k=unquote(self.path.split('/stream/')[-1])
+        if k in self.data.lineup:
+            logging.info('%s stream %s'%(self.client_address,k))
+            # send the URL to plex
+            url,a=self.streamproxy.get_stream(k)
+            if url:
+                if self.config.direct:
+                    logging.info('%s redirected to %s', self.client_address, url)
+                    self.send(redirect=url)
+                else: 
+                    self.streamproxy.proxy_stream(k,url,a,self)
+            else:
+                self.data.last_refresh=0 #expire cache if nothing usable
+                self.send('no source for %s' % k,code=503)
         else:
-            try:
-                code=200
-                html=self.html_start()
+            self.send('%s not in lineup' % k,code=404)
 
-                #serve lineup
-                if self.path.startswith('/lineup'):
-                    html+='''<p><table>'''
-                    if data.lineup:
-                        for g in data.group_order:
-                            html+='<tr/><tr><th colspan=2 id="%s">%s</th></tr>\n'%(escape(quote(g)),escape(g))
-                            for k,l in [(k,l) for k,l in data.lineup.items() if l['GuideCategory']==g]:
-                                html+='<tr><td>%s</td><td><a href="%s">%s</a></td><td>%s</td></tr>\n'%(
-                                    escape(''.join(s.split('//')[1][0] for s in l['sources'])),
-                                    escape(l['URL']),
-                                    escape(l['GuideName']),
-                                    escape(l['GuideID']) if l['GuideID'] else ''
-                                )
-                        html+='''</table></p>'''
-                    html+='''<p><table>'''
-                    for s,sg in data.source_groups.items():
-                        html+='<tr><th>%s</th><td>%s</td></tr>'%(
-                            s,
-                            ','.join('<a href="#%s">%s</a>'%(escape(quote(g[0])),escape(g[0])) if g[1] else escape(g[0]) for g in sorted(sg.values()))
-                        )
-                    html+='''</table></p>'''
-                    # filter builder
-                    html+='''<datalist id=group-select>'''
-                    for s,sg in data.source_groups.items():
-                        #escape | character, this is common in group names and will break regexes
-                        html+='\n'.join('<option value="%s">'%escape(g[0].replace('|','\\|')) for g in sorted(sg.values()))
-                    html+='''</datalist>'''
-                    html+='''<form method=post><p><table>
-                    <tr><th>group rename:</th>
-                    <td><input type=checkbox title='match at start' name=group_rename_start></td>
-                    <td><input type=text size=40 title='remove matching text from group name' name=group_rename></td>
-                    <td><input type=checkbox title='match at end' name=group_rename_end></td>
-                    <td>to</td><td><input type=text title='replace matching text with' name=group_rename_to></td></tr>
-                    <tr><th>group select:</th><td><input type=checkbox title='match at start' name=group_start></td>
-                    <td><input type=text size=40 name=group list=group-select></td>
-                    <td><input type=checkbox title='match at end' name=group_end></td></tr>
-                    <tr><th>stream select:</th>
-                    <td><input type=checkbox title='match at start' name=stream_start></td>
-                    <td><input type=text size=40 name=stream></td>
-                    <td><input type=checkbox title='match at end' name=stream_end></td>
-                    <td><input type=checkbox title='exclude matching streams' name=stream_exclude></td><td>exclude</td></tr>
-                    <tr><th>stream rename:</th>
-                    <td><input type=checkbox title='match at start' name=rename_start></td>
-                    <td><input type=text size=40 title='remove matching text from name' name=rename></td>
-                    <td><input type=checkbox title='match at end' name=rename_end></td>
-                    <td>to</td><td><input type=text title='replace matching text with' name=rename_to></td></tr>
-                    <tr><th>stream replace:</th>
-                    <td><input type=checkbox title='match at start' name=replace_start></td>
-                    <td><input type=text title='if channel matching pattern exists, replace channels matching name without pattern' size=40 name=replace></td>
-                    <td><input type=checkbox title='match at end' name=replace_end></td></tr>
-                    <tr><th>comment:</th>
-                    <td></td>
-                    <td><input type=text size=40 name=comment></td>
-                    <td colspan=2></td>
-                    <td><input type=submit value="add filters"></td></tr>
-                    </table></p></form>'''
-                
-                #serve logs
-                elif self.path.startswith('/log'): 
-                    html=self.html_start()
-                    html+='''<p>'''
-                    for l in LOGQ:
-                        html+=escape(l.msg)+'<br>'
-                    html+='''</p>'''
+    #serve HDHR data
+    def get_discover(self,path,**params):
+        return json.dumps({
+                "DeviceID": "TUNER",
+                "FriendlyName": "Tuner",
+                "TunerCount": int(self.config.tuner_count),
+                'BaseURL':'http://%s:%s'%(self.config.server_ip,self.config.server_port),
+                'LineupURL':'http://%s:%s/lineup.json'%(self.config.server_ip,self.config.server_port),
+            })
 
-                # serve status page
-                elif self.path == '/': 
-                    if stream.procs:
-                        html+='''<p><table><tr><th>pid</th><th>client</th><th>stream</th><th>command</th></tr>'''
-                        for pid,args in stream.procs.items():
-                            html+='<tr><td>%s</td><td>%s</td><td>%s</td><td>%s</td></tr>\n'%(pid,*args)
-                        html+='''
-                        </table>
-                    </p>'''
-                    html+='''<p><table>'''
-                    if data.accounts:
-                        html+='''<tr><th></th><th>user</th><th>pass</th><th>pri</th><th colspan=2>status</th><th>expires</th>'''
-                        t=int(config.cache+data.last_refresh-time.time())
-                        if t > 0:
-                            html+='<td>(cached for %ss)</td>'%t
-                        html+='''</tr>'''
-                        for url,accts in data.accounts.items():
-                            html+='<tr><th colspan=7>%s</th><td>(%s streams)</td></tr>'%(url,
-                            len(list(s for s in data.lineup.values() if url in s['sources'])) if data.lineup else '0')
-                            for a in accts:
-                                html+='<tr><td></td><td>%s</td><td>%s</td><td>%s</td><td>%s/%s</td><td>%s</td><td>%s</td></tr>\n'%tuple(escape(str(d)) for d in a.data())
-                    html+='''<tr><td><form method=post><input type=submit name=reload value=reload></form></td></tr>'''
-                    html+='''
-                        <tr><td colspan=8><form method=post>
-                            URL: <input type=text size=80 name=add>
-                            <input type=submit value="add account">
-                        </form></td></tr>'''
-                    if data.lineup:
-                        t=int(config.lineup_cache+data.last_rescan-time.time())
-                        if t > 0:
-                            cached='<td>(cached for %ss)</td>'%t
-                        else: 
-                            cached=''
-                        url='http://%s:%s/m3u' % (config.server_ip,config.server_port)
-                        html+='<tr><th>M3U</th><td colspan=6><a href="'+url+'">'+url+'</a></td>'+cached+'</tr>'
-                        url='http://%s:%s/xmltv' % (config.server_ip,config.server_port)
-                        html+='<tr><th>XMLTV</th><td colspan=6><a href="'+url+'">'+url+'</a>'+(cached if data.xmltv_cache else '')+'</tr>'
-                    html+='''</table></p>'''
-                    html+='''<p><table>'''
-                    for (k,v) in sorted(config.reload().items()):
-                        html+='<tr><th>%s</th><td>%s</td></tr>\n'%(escape(k),escape(str(v)))
-                    html+='''</table></p>'''
+    def get_lineup_status(self,path,**params):
+        return json.dumps({
+            'ScanInProgress':0,
+            'ScanPossible':1,
+            'Source':'Cable'
+        })
 
-                #invalid route
-                else:
-                    self.send(self.path,code=400)
-                    return
-            
-            #output what we can
-            except Exception as e:
-                logging.exception(e)
-                code=500
-                html+='\n'+str(e)
+    def get_lineup_json(self,path,**params):
+        self.data.rescan()
+        return json.dumps(list(self.data.lineup.values()))
 
-            #always add config editor
-            html+=self.html_end()
-            self.send(html,code=code)
-            return
+    #serve M#U/XMLTV
+    def get_m3u(self,path,**params):
+        self.data.rescan()
+        return '\n'.join(self.data.generate_m3u())
+
+    def get_xmltv(self,path,**params):
+        self.data.rescan(get_xmltv=True)
+        if self.data.xmltv_cache:
+            return self.data.build_xmltv()
+        else:
+            self.send(code=404)
+
+    #serve HTML pages
+    def get_lineup(self,path,**params):
+        html='''<p><table>'''
+        if self.data.lineup:
+            for g in self.data.group_order:
+                html+='<tr/><tr><th colspan=2 id="%s">%s</th></tr>\n'%(escape(quote(g)),escape(g))
+                for k,l in [(k,l) for k,l in self.data.lineup.items() if l['GuideCategory']==g]:
+                    html+='<tr><td>%s</td><td><a href="%s">%s</a></td><td>%s</td></tr>\n'%(
+                        escape(''.join(s.split('//')[1][0] for s in l['sources'])),
+                        escape(l['URL']),
+                        escape(l['GuideName']),
+                        escape(l['GuideID']) if l['GuideID'] else ''
+                    )
+            html+='''</table></p>'''
+        html+='''<p><table>'''
+        for s,sg in self.data.source_groups.items():
+            html+='<tr><th>%s</th><td>%s</td></tr>'%(
+                s,
+                ','.join('<a href="#%s">%s</a>'%(escape(quote(g[0])),escape(g[0])) if g[1] else escape(g[0]) for g in sorted(sg.values()))
+            )
+        html+='''</table></p>'''
+        # filter builder
+        html+='''<datalist id=group-select>'''
+        for s,sg in self.data.source_groups.items():
+            #escape | character, this is common in group names and will break regexes
+            html+='\n'.join('<option value="%s">'%escape(g[0].replace('|','\\|')) for g in sorted(sg.values()))
+        html+='''</datalist>'''
+        html+='''<form method=post><p><table>
+        <tr><th>group rename:</th>
+        <td><input type=checkbox title='match at start' name=group_rename_start></td>
+        <td><input type=text size=40 title='remove matching text from group name' name=group_rename></td>
+        <td><input type=checkbox title='match at end' name=group_rename_end></td>
+        <td>to</td><td><input type=text title='replace matching text with' name=group_rename_to></td></tr>
+        <tr><th>group select:</th><td><input type=checkbox title='match at start' name=groups_start></td>
+        <td><input type=text size=40 name=groups list=group-select></td>
+        <td><input type=checkbox title='match at end' name=groups_end></td></tr>
+        <tr><th>stream select:</th>
+        <td><input type=checkbox title='match at start' name=streams_start></td>
+        <td><input type=text size=40 name=streams></td>
+        <td><input type=checkbox title='match at end' name=streams_end></td>
+        <td><input type=checkbox title='exclude matching streams' name=streams_exclude></td><td>exclude</td></tr>
+        <tr><th>stream rename:</th>
+        <td><input type=checkbox title='match at start' name=rename_start></td>
+        <td><input type=text size=40 title='remove matching text from name' name=rename></td>
+        <td><input type=checkbox title='match at end' name=rename_end></td>
+        <td>to</td><td><input type=text title='replace matching text with' name=rename_to></td></tr>
+        <tr><th>stream replace:</th>
+        <td><input type=checkbox title='match at start' name=replace_start></td>
+        <td><input type=text title='if channel matching pattern exists, replace channels matching name without pattern' size=40 name=replace></td>
+        <td><input type=checkbox title='match at end' name=replace_end></td></tr>
+        <tr><th>comment:</th>
+        <td></td>
+        <td><input type=text size=40 name=comment></td>
+        <td colspan=2></td>
+        <td><input type=submit name='add_filter' value="Add filter"></td></tr>
+        </table></p></form>'''
+        return self.html_start()+html+self.html_end()    
+
+    def get_log(self,path,**params):
+        #serve logs
+        html='<p>'
+        for l in LOGQ:
+            html+=escape(l.msg)+'<br>'
+        html+='</p>'
+        return self.html_start()+html+self.html_end()    
+
+    def get_status(self,path,**params):
+        html=''
+        if self.streamproxy.procs:
+            html+='''<p><table><tr><th>pid</th><th>client</th><th>stream</th><th>command</th></tr>'''
+            for pid,args in self.streamproxy.procs.items():
+                html+='<tr><td>%s</td><td>%s</td><td>%s</td><td>%s</td></tr>\n'%(pid,*args)
+            html+='''
+            </table>
+        </p>'''
+        html+='''<p><table>'''
+        if self.data.accounts:
+            html+='''<tr><th></th><th>user</th><th>pass</th><th>pri</th><th colspan=2>status</th><th>expires</th>'''
+            t=int(self.config.cache+self.data.last_refresh-time.time())
+            if t > 0:
+                html+='<td>(cached for %ss)</td>'%t
+            html+='''</tr>'''
+            for url,accts in self.data.accounts.items():
+                html+='<tr><th colspan=7>%s</th><td>(%s streams)</td></tr>'%(url,
+                len(list(s for s in self.data.lineup.values() if url in s['sources'])) if self.data.lineup else '0')
+                for a in accts:
+                    html+='<tr><td></td><td>%s</td><td>%s</td><td>%s</td><td>%s/%s</td><td>%s</td><td>%s</td></tr>\n'%tuple(escape(str(d)) for d in a.data())
+        html+='''<tr><td><form method=post><input type=submit name=rescan value=Rescan></form></td></tr>'''
+        html+='''
+            <tr><td colspan=8><form method=post>
+                URL: <input type=text size=80 name=add_account>
+                <input type=submit value="Add account">
+            </form></td></tr>'''
+        if self.data.lineup:
+            t=int(self.config.lineup_cache+self.data.last_rescan-time.time())
+            if t > 0:
+                cached='<td>(cached for %ss)</td>'%t
+            else: 
+                cached=''
+            url='http://%s:%s/m3u' % (self.config.server_ip,self.config.server_port)
+            html+='<tr><th>M3U</th><td colspan=6><a href="'+url+'">'+url+'</a></td>'+cached+'</tr>'
+            url='http://%s:%s/xmltv' % (self.config.server_ip,self.config.server_port)
+            html+='<tr><th>XMLTV</th><td colspan=6><a href="'+url+'">'+url+'</a>'+(cached if self.data.xmltv_cache else '')+'</tr>'
+        html+='''</table></p>'''
+        html+='''<p><table>'''
+        for (k,v) in sorted(self.config.reload().items()):
+            html+='<tr><th>%s</th><td>%s</td></tr>\n'%(escape(k),escape(str(v)))
+        html+='''</table></p>'''
+        return self.html_start()+html+self.html_end()    
 
     def html_start(self):
-        data=self.server.data
         return '''<html>
-    <head>
-        <style>
-            body{font-family:monospace}
-            th{text-align:left}
-        </style>
-    </head>
-    <body>
+        <head>
+            <style>
+                body{font-family:monospace}
+                th{text-align:left}
+            </style>
+        </head>
+        <body>
         <p><table><tr>
             <th><a href='/'>status</a>&nbsp;&nbsp;&nbsp;</th>
             <th><a href='/log'>log</a>&nbsp;&nbsp;&nbsp;</th>
             <th><a href='/lineup'>lineup</a>&nbsp;</th><td>(%s streams)</td>
-        </tr></table></p>''' % (len(list(data.lineup)) if data.lineup else '0')
+        </tr></table></p>''' % (len(list(self.data.lineup)) if self.data.lineup else '0')
 
     def html_end(self):
-        config=self.server.config
         html=''
-        if config.config_file:
+        if self.config.config_file:
             html+='''
             <p>&nbsp;</p><p><form method=post>
             <textarea style=font-family:monospace name=config cols=80 rows=25>'''
-            html+=escape(config.get_config())
+            html+=escape(self.config.get_config())
             html+='''</textarea><br>
             <input type=submit value="save config">
             </form></p>'''
@@ -896,10 +959,10 @@ def main(*args):
     data=Data(config)
     data.rescan()
     # start server
-    httpd = http.server.ThreadingHTTPServer((config.server_ip, int(config.server_port)), Handler)
+    httpd = http.server.ThreadingHTTPServer((config.server_ip, config.server_port), TunerHandler)
     httpd.config=config
     httpd.data=data
-    httpd.stream=Stream(config,data)
+    httpd.streamproxy=StreamProxy(config,data)
     logging.info('serving at http://%s:%s',config.server_ip, config.server_port)
     httpd.serve_forever()
 
