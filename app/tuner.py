@@ -10,7 +10,7 @@ from collections import deque
 from urllib.parse import quote,unquote
 from html import escape
 from iptv import Config, Data, Account
-from web import Server, RequestHandler
+from web import App, RequestHandler
 
 
 class StreamProxy:
@@ -44,9 +44,9 @@ class StreamProxy:
             self.procs[cmd.pid]=(handler.client_address,k,args)
         except Exception as e:
             logging.exception(e)
-            handler.send(str(e),code=500)
+            handler.respond(str(e),code=500)
             return
-        handler.send() #HTTP 200 and start sending stream data
+        handler.respond() #HTTP 200 and start sending stream data
         try:
             acct.active_conns+=1 #update cached account
             while cmd.poll() is None: #cmd exited
@@ -76,12 +76,13 @@ class StreamProxy:
 class TunerHandler(RequestHandler):
     '''handler for tuner app'''
 
-    def start_request(self):
-        #populate context from server
+    def handle(self, *args, **kwargs):
+        #populate context from server before handling any requests
         self.config=self.server.config
         self.data=self.server.data
         self.streamproxy=self.server.streamproxy
-   
+        super().handle(*args, **kwargs)
+
     def rescan(self,*args,**kwargs):
         #trigger a full account/lineup rescan
         self.data.rescan(force_rescan=True)
@@ -119,14 +120,14 @@ class TunerHandler(RequestHandler):
             if url:
                 if self.config.direct:
                     logging.info('%s redirected to %s', self.client_address, url)
-                    self.send(redirect=url)
+                    self.respond(redirect=url)
                 else: 
                     self.streamproxy.proxy_stream(k,url,a,self)
             else:
                 self.data.last_refresh=0 #expire cache if nothing usable
-                self.send('no source for %s' % k,code=503)
+                self.respond('no source for %s' % k,code=503)
         else:
-            self.send('%s not in lineup' % k,code=404)
+            self.respond('%s not in lineup' % k,code=404)
 
     #serve HDHR data
     def get_discover(self,path,**params):
@@ -159,7 +160,7 @@ class TunerHandler(RequestHandler):
         if self.data.xmltv_cache:
             return self.data.build_xmltv()
         else:
-            self.send(code=404)
+            self.respond(code=404)
 
     #serve HTML pages
     def get_lineup(self,path,**params):
@@ -403,7 +404,7 @@ def main(*args):
     data=Data(config)
     data.rescan()
     # init server and set context
-    app = Server((config.server_ip, config.server_port), TunerHandler)
+    app = App((config.server_ip, config.server_port), TunerHandler)
     app.server.config=config
     app.server.data=data
     app.server.streamproxy=StreamProxy(config,data)
