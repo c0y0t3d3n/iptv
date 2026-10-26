@@ -39,7 +39,7 @@ Example: `REPLACE= UHD$` will turn 'ABC UHD' into 'ABC', removing any streams na
 ## Automapping
 Channels from each source will be merged into a single lineup by combining channels with the same name or same EPG ID. Matching names take priority over EPG IDs. To disable matching by EPG ID, set `AUTO_MAP=0`
 
-The characters before each stream link in the lineup represent the source(s) providing that channel, and the associated EPG ID follows the channel name. To set or override the EPG ID for a channel, specify `map=channel=epgid`.
+The characters before each stream link in the lineup represent the source(s) providing that channel, and the associated EPG ID follows the channel name. To set or override the EPG ID for a channel, specify `MAP=channel=epgid`.
 
 To filter the lineup to only channels with EPG data, set `MIN_SOURCES=<n>` where `<n>` is the minimum number of EPG sources a channel must have to be in the lineup.
 
@@ -57,11 +57,10 @@ Put xtream codes in the config as:
 
 PRI is optional and defaults to 0. Lower number is higher priority and will be preferred unless full. If a stream failure occurs and account caching is enabled the failing source will be deprioritized until refresh. To disable this behavior set `AUTO_PRI=0`
 
-If you have a large number of accounts for a source, you may not want to probe all of them on every rescan.\
-Set `CHECK=<n>` to randomly select at most `<n>` accounts per source.
+If you have a large number of accounts for a source, you may not want to probe all of them on every rescan. Set `CHECK=<n>` to randomly select at most `<n>` accounts per source.
 
 # Command line and options
-`./tuner.py config_file`
+`app/tuner.py config_file`
 
 Options can set in config or environment
 
@@ -69,7 +68,7 @@ Options can set in config or environment
 `DIRECT=1` will bypass ffmpeg remuxing and redirect clients to the stream URL.\
 `TUNER_COUNT=<n>` set the number of tuners reported to Plex.\
 `CACHE=<seconds>` cache account status for the specified number of seconds.\
-`LINEUP_CACHE=<seconds>` cache lineup and XMLTV for the specidied number of seconds. Defualt 86400.\
+`LINEUP_CACHE=<seconds>` cache lineup and XMLTV for the specified number of seconds. Defualt 86400.\
 `AUTO_MAP=0` disable automapping of channels across source lineups by EPG ID.\
 `AUTO_PRI=0` disable auto priority adjust of source on stream failure. Cache will be cleared to force refresh.\
 `MIN_SOURCES=<n>` require a channel have a minimum number of sources to be included in the lineup. 1 will require channels have EPG IDs.\
