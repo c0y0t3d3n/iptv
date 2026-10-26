@@ -1,14 +1,13 @@
 #!/usr/bin/python3
 import sys
 import os
-import requests
-import json
-import re
 import time
 from datetime import datetime
+import logging
+import json
+import re
 import requests
 import random
-import logging
 from threading import Lock
 from urllib.parse import quote, urlsplit
 from io import StringIO, BytesIO
