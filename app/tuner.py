@@ -12,47 +12,6 @@ from html import escape
 from iptv import Config, Data, Account
 from web import Server, RequestHandler
 
-#add the tuner config
-Config.args.update( dict(
-        server_ip=(str,'localhost'),
-        server_port=(int,5004),
-        tuner_count=(int,4),
-        cmd=(str,'ffmpeg -hide_banner -loglevel error -user_agent tuner -i %s -c copy -c:a ac3 -copyts -f mpegts pipe:1'),
-        direct=(int,0),
-        buffer=(int,1024*1024) #buffer size for streaming
-))
-
-DEFAULT_CONFIG='''
-#default group name cleanup
-group_rename=^^USA? ?[\\|:] ?
-group_rename=^news.*weather$=news
-group_rename=^family.*kids$=kids
-
-#default group selection
-groups=^(ENTERTAINMENT|KIDS|MOVIES|MUSIC|NEWS|SPORTS)$
-
-#group order in lineup, non-matching groups will be at end 
-order=LOCAL,SPORTS,NEWS,ENTERTAINMENT,MUSIC,KIDS,MOVIES
-
-#exclude non US and west
-streams=!(CA|CAN|UK|GB|ES)[: ][: ]
-streams=! \\(?west\\)?
-
-#to include your local stations, insert names of cities or call signs of your stations
-streams=mycity,CALLSIGN
-#clean up local channel names, substitute your state and city
-rename=( - )?(ST).*(city) ?\\|?= #to space if embedded
-
-#strip common prefixes/suffixes
-rename=^USA? ?[\\|: ], \\(?east\\)?, HD$
-
-#replace duplicate channels with higher def, prefer UHD,FHD,SHD
-replace=SHD$,FHD$,UHD$
-
-#accounts go here as
-#URL USERNAME PASSWORD PRIORITY
-
-'''
 
 class StreamProxy:
     '''streaming subprocess handler'''
@@ -116,39 +75,6 @@ class StreamProxy:
 
 class TunerHandler(RequestHandler):
     '''handler for tuner app'''
-
-    # paths the client can GET
-    routes={
-        'GET':{
-            '/stream':'get_stream',
-            '/discover.json':'get_discover',
-            '/lineup_status.json':'get_lineup_status',
-            '/lineup.json':'get_lineup_json',
-            '/m3u':'get_m3u',
-            '/xmltv':'get_xmltv',
-            '/lineup':'get_lineup',
-            '/log':'get_log',
-            '/':'get_status'
-        },
-        'POST':{
-            '/lineup.post':'rescan'
-        }
-    }
-
-    # POST routes are same as GET (params are handled independently)
-    routes['POST'].update(routes['GET'].copy())
-
-    #params with handler methods
-    params={
-        'rescan':'rescan',
-        'config':'save_config',
-        'add_account':'add_account',
-        'groups':'add_filter',
-        'group_rename':'add_filter',
-        'streams':'add_filter',
-        'rename':'add_filter',
-        'replace':'add_filter'
-    }
 
     def start_request(self):
         #populate context from server
@@ -372,13 +298,91 @@ class TunerHandler(RequestHandler):
             </form></p>'''
         html+='''</body><html>'''
         return html
+        
+
+    #app config
+
+    #handle these params before routing
+    params={
+        'rescan':rescan,
+        'config':save_config,
+        'add_account':add_account,
+        'groups':add_filter,
+        'group_rename':add_filter,
+        'streams':add_filter,
+        'rename':add_filter,
+        'replace':add_filter
+    }
+
+    routes={
+        'GET':{     # paths we serve
+            '/stream':get_stream,
+            '/discover.json':get_discover,
+            '/lineup_status.json':get_lineup_status,
+            '/lineup.json':get_lineup_json,
+            '/lineup':get_lineup,
+            '/m3u':get_m3u,
+            '/xmltv':get_xmltv,
+            '/log':get_log,
+            '/':get_status
+        },
+        'POST':{    # rescan on HDHR rescan command
+            '/lineup.post':rescan
+        }
+    }
+    # remaining POST routes are same as GET routes
+    routes['POST'].update(routes['GET'])
 
 
 class LogQ(deque):
-   '''leaky queue that drops oldest items'''
+   '''leaky queue that drops oldest items for the logs page'''
    def put_nowait(self, item, **kwargs):
         self.append(item)
 
+
+#add the tuner args to the config def
+Config.args.update( dict(
+        server_ip=(str,'localhost'),
+        server_port=(int,5004),
+        tuner_count=(int,4),
+        cmd=(str,'ffmpeg -hide_banner -loglevel error -user_agent tuner -i %s -c copy -c:a ac3 -copyts -f mpegts pipe:1'),
+        direct=(int,0),
+        buffer=(int,1024*1024) #buffer size for streaming
+))
+
+
+#this will be written to the config file if it does not exist
+DEFAULT_CONFIG='''
+#default group name cleanup
+group_rename=^^USA? ?[\\|:] ?
+group_rename=^news.*weather$=news
+group_rename=^family.*kids$=kids
+
+#default group selection
+groups=^(ENTERTAINMENT|KIDS|MOVIES|MUSIC|NEWS|SPORTS)$
+
+#group order in lineup, non-matching groups will be at end 
+order=LOCAL,SPORTS,NEWS,ENTERTAINMENT,MUSIC,KIDS,MOVIES
+
+#exclude non US and west
+streams=!(CA|CAN|UK|GB|ES)[: ][: ]
+streams=! \\(?west\\)?
+
+#to include your local stations, insert names of cities or call signs of your stations
+streams=mycity,CALLSIGN
+#clean up local channel names, substitute your state and city
+rename=( - )?(ST).*(city) ?\\|?= #to space if embedded
+
+#strip common prefixes/suffixes
+rename=^USA? ?[\\|: ], \\(?east\\)?, HD$
+
+#replace duplicate channels with higher def, prefer UHD,FHD,SHD
+replace=SHD$,FHD$,UHD$
+
+#accounts go here as
+#URL USERNAME PASSWORD PRIORITY
+
+'''
 
 def main(*args):
     global LOGQ
@@ -399,13 +403,12 @@ def main(*args):
     data=Data(config)
     data.rescan()
     # init server and set context
-    httpd = Server((config.server_ip, config.server_port), TunerHandler)
-    httpd.server.config=config
-    httpd.server.data=data
-    httpd.server.streamproxy=StreamProxy(config,data)
+    app = Server((config.server_ip, config.server_port), TunerHandler)
+    app.server.config=config
+    app.server.data=data
+    app.server.streamproxy=StreamProxy(config,data)
     # start server
-    logging.info('serving at http://%s:%s',config.server_ip, config.server_port)
-    httpd.run()
+    app.run()
 
 if __name__ == '__main__':    
     main(*sys.argv[1:])

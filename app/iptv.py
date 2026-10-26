@@ -22,9 +22,11 @@ def upper(s):
         return s if s else ''
 
 def parse_url(text):
+    #just a url user pass line
     if ' ' in text:
         info=text
     else:
+        #probably a http://host:port/get.php?username=...&password=...&... URL
         try:
             parts=urlsplit(text)
             url=parts.scheme+'://'+parts.netloc
