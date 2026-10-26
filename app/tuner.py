@@ -62,9 +62,9 @@ class StreamProxy:
         self.procs={}
 
     def get_stream(self,k):
-        self.data.refresh_accts()
-        l=self.data.lineup[k]
         try:
+            self.data.refresh_accts()
+            l=self.data.lineup[k]
             #get the best source/account for this channe;l
             (source,a)=self.data.select_sources(list(l['sources'].keys()))[0]
             #format the stream URL, return URL and account
@@ -158,7 +158,6 @@ class TunerHandler(RequestHandler):
    
     def rescan(self,*args,**kwargs):
         #trigger a full account/lineup rescan
-        logging.info('rescanning...')
         self.data.rescan(force_rescan=True)
 
     def add_filter(self,key,val,**params):

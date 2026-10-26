@@ -47,7 +47,7 @@ class RequestHandler(http.server.BaseHTTPRequestHandler):
         parts=self.path.split('?',1)
         params={}
         if len(parts)>1:
-            for p in path[1].split('&'):
+            for p in parts[1].split('&'):
                 if p:
                     k,v=unquote(p.replace('+',' ')).split('=',1)
                     params[k]=v

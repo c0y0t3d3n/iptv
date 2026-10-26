@@ -254,8 +254,8 @@ class Data:
         #refresh status of accounts from source if not cached
         with self.refresh_lock:
             if force_refresh or not self.last_refresh or self.last_refresh + self.config.cache < time.time():
-                if accounts is None: #if no list passed use cached accounts
-                    accounts=self.accounts.copy()
+                if accounts is None: #if no list passed use comfig accounts
+                    accounts=self.config.get_accounts()
                 self.accounts={}
                 # check accounts and return map of source to accounts sorted by free slots
                 for url,accts in accounts.items():
@@ -474,7 +474,7 @@ class Data:
                 #refresh account status and lineup if fetch=True, or cache expired
                 if force_rescan or not self.last_rescan or self.last_rescan + self.config.lineup_cache < time.time():
                     #load accounts from config
-                    self.refresh_accts(self.config.get_accounts(),force_rescan)
+                    self.refresh_accts(force_refresh=force_rescan)
                     self.fetch_lineup(self.select_sources(check_free=False))
                     self.xmltv_cache=None #clear cached XMLTV on lineup rescan 
                     self.last_rescan=time.time()
