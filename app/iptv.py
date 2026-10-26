@@ -219,7 +219,7 @@ class Data:
         self.refresh_lock=Lock()
         self.rescan_lock=Lock()
         self.accounts={}
-        self.lineup=None
+        self.lineup={}
         
     def xtream_request(self,url,a,action=None,path='player_api.php',raw=False):
         # xtream codes API requests
@@ -306,57 +306,6 @@ class Data:
                 logging.warning('fetch: %s for %s %s %s',e,url,a.username,a.password)
                 continue
 
-    def fetch_xmltv(self,selected_sources):
-        self.xmltv_cache={'data':{},'channels':{},'programs':[]}
-        for url, a in selected_sources:
-            logging.info('xmltv: fetch from %s',url)
-            try:
-                xmlin=StringIO(self.xtream_request(url,a,path='xmltv.php',raw=True))
-                xmlin.seek(0)
-                self.xmltv_cache['data'].update((k.replace('-','_'),v) for k,v in xmltv.read_data(xmlin).items())
-                n=0
-                xmlin.seek(0)
-                for c in xmltv.read_channels(xmlin):
-                    if c['id']:
-                        c['id'] = c['id'].lower()
-                        self.xmltv_cache['channels'][c['id']]=c
-                        n+=1
-                logging.debug('xmltv: fetched %s channels from %s'%(n,url))
-                n=0
-                xmlin.seek(0)
-                for p in xmltv.read_programmes(xmlin):
-                    if p['channel']:
-                        p['channel'] = p['channel'].lower()
-                        self.xmltv_cache['programs'].append(p)
-                        n+=1
-                logging.debug('xmltv: fetched %s programs from %s'%(n,url))
-            except Exception as e:
-                logging.warning('xmltv: %s for %s %s %s',e,url,a.username,a.password)
-
-    def build_xmltv(self):
-        ids=set(l['GuideID'] for l in self.lineup.values()) #EPG ID of channels in lineup
-        chs=[]
-        writer=xmltv.Writer(**dict((k.replace('-','_'),v) for k,v in self.xmltv_cache['data'].items()))
-        #filter to lineup channels
-        nc=np=0
-        for i in ids:
-            c=self.xmltv_cache['channels'].get(i)
-            if c:
-                nc+=1
-                writer.addChannel(c)
-        #add programs for lineup channels
-        np=0
-        for p in self.xmltv_cache['programs']:
-            if p['channel'] in ids:
-                np+=1
-                writer.addProgramme(p)
-        #generate XML
-        xmlout=BytesIO()
-        writer.write(xmlout)
-        xmlout.seek(0)
-        logging.info('xmltv: %s channels, %s programs',nc,np)
-        return xmlout.read().decode()
-        
     def build_lineup(self,use_source_url=False):
         self.source_groups={}
         self.group_order=[]
@@ -449,24 +398,76 @@ class Data:
             if self.config.min_sources:
                 lineup=dict((k,l) for k,l in lineup.items() if l['GuideID'] and len(l['sources'])>=self.config.min_sources)
             # now order the final lineup
-            self.lineup={}
+            ordered_lineup={}
             ordered_groups=dict(sorted((l['GuideCategory'],False) for l in lineup.values()))
             for o in self.config.order+['']: #empty string at end will output all remaining groups
                 for g in ordered_groups:
                     #if group matches pattern and has not been output
                     if not ordered_groups[g] and re.search(o,g):
                         #output group ahd mark as output
-                        self.lineup.update((k,l) for k,l in lineup.items() if l['GuideCategory']==g)
+                        ordered_lineup.update((k,l) for k,l in lineup.items() if l['GuideCategory']==g)
                         ordered_groups[g]=True
                         logging.debug('lineup: ordering group %s',g)
                         self.group_order.append(g)
-            logging.info('lineup: %s groups, %s streams',len(ordered_groups),len(self.lineup))
+            logging.info('lineup: %s groups, %s streams',len(ordered_groups),len(ordered_lineup))
+            self.lineup=ordered_lineup
         except Exception as e:
             try:
                 logging.warning('lineup: %s, last pattern was %s',e,p)
             except:
                 logging.warning('lineup: %s',e)
         return self.lineup
+
+    def fetch_xmltv(self,selected_sources):
+        self.xmltv_cache={'data':{},'channels':{},'programs':[]}
+        for url, a in selected_sources:
+            logging.info('xmltv: fetch from %s',url)
+            try:
+                xmlin=StringIO(self.xtream_request(url,a,path='xmltv.php',raw=True))
+                xmlin.seek(0)
+                self.xmltv_cache['data'].update(xmltv.read_data(xmlin).items())
+                n=0
+                xmlin.seek(0)
+                for c in xmltv.read_channels(xmlin):
+                    if c['id']:
+                        c['id'] = c['id'].lower()
+                        self.xmltv_cache['channels'][c['id']]=c
+                        n+=1
+                logging.debug('xmltv: fetched %s channels from %s'%(n,url))
+                n=0
+                xmlin.seek(0)
+                for p in xmltv.read_programmes(xmlin):
+                    if p['channel']:
+                        p['channel'] = p['channel'].lower()
+                        self.xmltv_cache['programs'].append(p)
+                        n+=1
+                logging.debug('xmltv: fetched %s programs from %s'%(n,url))
+            except Exception as e:
+                logging.warning('xmltv: %s for %s %s %s',e,url,a.username,a.password)
+
+    def build_xmltv(self):
+        ids=set(l['GuideID'] for l in self.lineup.values()) #EPG ID of channels in lineup
+        chs=[]
+        writer=xmltv.Writer(**dict((k.replace('-','_'),v) for k,v in self.xmltv_cache['data'].items()))
+        #filter to lineup channels
+        nc=np=0
+        for i in ids:
+            c=self.xmltv_cache['channels'].get(i)
+            if c:
+                nc+=1
+                writer.addChannel(c)
+        #add programs for lineup channels
+        np=0
+        for p in self.xmltv_cache['programs']:
+            if p['channel'] in ids:
+                np+=1
+                writer.addProgramme(p)
+        #generate XML
+        xmlout=BytesIO()
+        writer.write(xmlout)
+        xmlout.seek(0)
+        logging.info('xmltv: %s channels, %s programs',nc,np)
+        return xmlout.read().decode()
 
     def rescan(self,force_rescan=None,get_xmltv=False):
         with self.rescan_lock:
