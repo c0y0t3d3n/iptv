@@ -2,6 +2,7 @@
 import logging
 import http.server
 from urllib.parse import unquote, urlsplit
+from re import match
 
 class RequestHandler(http.server.BaseHTTPRequestHandler):
     '''HTTP request handler'''
@@ -55,9 +56,10 @@ class RequestHandler(http.server.BaseHTTPRequestHandler):
     def __handle_path(self,path,**params):
         # call the route handler, or the None handler for an undefined route, or return a 404
         # route handler will get (path,**params)
-        routes=self.routes.get(self.command,{})
-        route=routes.get(urlsplit(path).path,routes.get(None))
         try:
+            routes=self.routes.get(self.command,{}) #get routes for this method
+            matches=[r for r in routes if match(r,path)]
+            route=routes[matches[0]] if matches else routes.get(None)
             if route:
                 return route(self,path,**params)
             else:
@@ -90,7 +92,7 @@ class RequestHandler(http.server.BaseHTTPRequestHandler):
     '''routes are defined in subclass as:
     routes={ 
         'HTTP_METHOD':{
-            '/path': path_handler,
+            'regex': path_handler,
             None: default_path_handler (returns 404 if not defined)
         }
     }

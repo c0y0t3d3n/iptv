@@ -317,15 +317,15 @@ class TunerHandler(RequestHandler):
 
     routes={
         'GET':{     # paths we serve
-            '/stream':get_stream,
-            '/discover.json':get_discover,
-            '/lineup_status.json':get_lineup_status,
-            '/lineup.json':get_lineup_json,
-            '/lineup':get_lineup,
-            '/m3u':get_m3u,
-            '/xmltv':get_xmltv,
-            '/log':get_log,
-            '/':get_status
+            '/stream/':get_stream,
+            '/discover.json$':get_discover,
+            '/lineup_status.json$':get_lineup_status,
+            '/lineup.json$':get_lineup_json,
+            '/lineup$':get_lineup,
+            '/m3u$':get_m3u,
+            '/xmltv$':get_xmltv,
+            '/log$':get_log,
+            '/$':get_status
         },
         'POST':{    # rescan on HDHR rescan command
             '/lineup.post':rescan
