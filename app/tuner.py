@@ -1,137 +1,95 @@
 #!/usr/bin/python3
 import time 
-import json
 import sys
 import os
-import subprocess
 import logging
 from logging.handlers import QueueHandler
 from collections import deque
-from urllib.parse import quote,unquote
+from urllib.parse import quote
 from html import escape
+import asyncio
+from aiohttp import web
 from iptv import Config, Data, Account
-from web import App, RequestHandler
 
-
-class StreamProxy:
-    '''streaming subprocess handler'''
+class Tuner:
+    '''handler for tuner app'''
     def __init__(self,config,data):
         self.config=config
         self.data=data
         self.procs={}
 
-    def get_stream(self,k):
-        try:
-            self.data.refresh_accts()
-            l=self.data.lineup[k]
-            #get the best source/account for this channe;l
-            (source,a)=self.data.select_sources(list(l['sources'].keys()))[0]
-            #format the stream URL, return URL and account
-            return self.config.format % (a.info['server_info']['url'], 
-                    a.info['server_info']['port'], a.username, a.password, 
-                    l['sources'][source]),a
-        except Exception as e: #no source for this stream
-            logging.debug(e)
-            return None,None
 
-    def proxy_stream(self,k,url,acct,handler):
-        # remux with ffmpeg
-        args = self.config.cmd % url
-        logging.info('%s starting %s', handler.client_address, args)
-        try:
-            cmd = subprocess.Popen(args.split(), shell=False, stdout=subprocess.PIPE)
-            logging.info('%s pid %s started', handler.client_address, cmd.pid)
-            self.procs[cmd.pid]=(handler.client_address,k,args)
-        except Exception as e:
-            logging.exception(e)
-            handler.respond(str(e),code=500)
-            return
-        handler.respond() #HTTP 200 and start sending stream data
-        try:
-            acct.active_conns+=1 #update cached account
-            while cmd.poll() is None: #cmd exited
-                data = cmd.stdout.read(int(self.config.buffer))
-                if not data: # cmd exited, source dropped the stream
-                    break
-                handler.wfile.write(data)
-            # cmd exited likely source dropped the stream
-            logging.warning('%s pid %s stream failed',handler.client_address, cmd.pid)
-            if self.config.auto_pri:
-                # drop priority for this source on fail, will be reset on refresh
-                for sa in self.data.accounts[acct.source]:
-                    sa.priority+=1
-            else:
-                self.data.last_refresh=0 #expire cache if 'best' account still fails
-        except BrokenPipeError: 
-            logging.debug('stream: %s pid %s disconnected',handler.client_address, cmd.pid)
-        except Exception as e:
-            logging.exception(e)
-        cmd.stdout.close() # stop cmd if running
-        cmd.wait() # wait for exit
-        acct.active_conns-=1
-        logging.info('%s pid %s stop (%d)', handler.client_address, cmd.pid, cmd.returncode)
-        del self.procs[cmd.pid]
-
-
-class TunerHandler(RequestHandler):
-    '''handler for tuner app'''
-
-    def handle(self, *args, **kwargs):
-        #populate context from server before handling any requests
-        self.config=self.server.config
-        self.data=self.server.data
-        self.streamproxy=self.server.streamproxy
-        super().handle(*args, **kwargs)
-
-    def rescan(self,*args,**kwargs):
-        #trigger a full account/lineup rescan
-        self.data.rescan(force_rescan=True)
-
-    def add_filter(self,key,val,**params):
-        if val:
-            self.config.add_filter(key,val,
-                start=key+'_start' in params,
-                end=key+'_end' in params,
-                exclude=key+'_exxclude' in params,
-                rename_to=params.get(key+'_to'),
-                comment=params['comment']
-            )
-            self.data.rescan() #rebuild lineup
-    
-    def save_config(self,key,val,**params):
-        # config text was submitted
-        self.config.write(val)
-        self.data.rescan()
-    
-    def add_account(self,key,val,**params):
-        # url/hash was submitted, add account and rescan
-        if val:
-            self.config.add_account(val)
-            #reload config, scan sources if fetch is True, rebuild lineup
-            self.data.rescan(True)
-
-    def get_stream(self,path,**params):
+    #redirect to or serve stream
+    async def get_stream(self,request):
         #serve stream URL or stream data
-        k=unquote(self.path.split('/stream/')[-1])
+        k=unquote(request.match_info['stream'])
         if k in self.data.lineup:
-            logging.info('%s stream %s'%(self.client_address,k))
+            logging.info('%s stream %s'%(request.remote,k))
             # send the URL to plex
-            url,a=self.streamproxy.get_stream(k)
-            if url:
+            try:
+                await self.data.refresh_accts()
+                l=self.data.lineup[k]
+                #get the best source/account for this channe;l
+                (source,acct)=self.data.select_sources(list(l['sources'].keys()))[0]
+                #format the stream URL, return URL and account
+                url=self.config.format % (acct.info['server_info']['url'], 
+                        acct.info['server_info']['port'], acct.username, acct.password, 
+                        l['sources'][source])
                 if self.config.direct:
-                    logging.info('%s redirected to %s', self.client_address, url)
-                    self.respond(redirect=url)
-                else: 
-                    self.streamproxy.proxy_stream(k,url,a,self)
-            else:
+                    logging.info('%s redirected to %s', request.remote, url)
+                    return web.Response(status=302,headers={'Location':url})
+                else:  
+                    # remux with ffmpeg
+                    args = self.config.cmd % url
+                    logging.info('%s starting %s', request.remote, args)
+                    try:
+                        proc = await asyncio.create_subprocess_exec(*args.split(), stdout=asyncio.subprocess.PIPE)
+                        logging.info('%s pid %s started', request.remote, proc.pid)
+                        self.procs[proc.pid]=(request.remote,k,args)
+                    except Exception as e:
+                        logging.exception(e)
+                        return web.Response(status=500,text=str(e))
+                    try:
+                        response=web.StreamResponse()
+                        await response.prepare(request)
+                        acct.active_conns+=1 #update cached account
+                        while True: #cmd exited
+                            data = await proc.stdout.read(int(self.config.buffer))
+                            if not data: # cmd exited, source dropped the stream
+                                break
+                            await response.write(data)
+                        # cmd exited likely source dropped the stream
+                        logging.warning('%s pid %s stream failed',request.remote, proc.pid)
+                        if self.config.auto_pri:
+                            # drop priority for this source on fail, will be reset on refresh
+                            for sa in self.data.accounts[acct.source]:
+                                sa.priority+=1
+                        else:
+                            self.data.last_refresh=0 #expire cache if 'best' account still fails
+                    except OSError: 
+                        logging.debug('%s pid %s disconnected',request.remote, proc.pid)
+                    except Exception as e:
+                        logging.exception(e)
+                    try:
+                        proc.kill() # stop cmd if running
+                        await proc.wait() # wait for exit
+                    except:
+                        pass #it gone
+                    acct.active_conns-=1
+                    logging.info('%s pid %s stop (%d)', request.remote, proc.pid, proc.returncode)
+                    del self.procs[proc.pid]
+                    return response
+            except Exception as e: #no source available for this stream
+                logging.debug('%s %s',k,e)
                 self.data.last_refresh=0 #expire cache if nothing usable
-                self.respond('no source for %s' % k,code=503)
+                return web.Response(status=503,text=k)
         else:
-            self.respond('%s not in lineup' % k,code=404)
+            return web.Response(status=404,text=k)
+
 
     #serve HDHR data
-    def get_discover(self,path,**params):
-        return json.dumps({
+    async def get_discover(self,request):
+        return web.json_response({
                 "DeviceID": "TUNER",
                 "FriendlyName": "Tuner",
                 "TunerCount": int(self.config.tuner_count),
@@ -139,31 +97,31 @@ class TunerHandler(RequestHandler):
                 'LineupURL':'http://%s:%s/lineup.json'%(self.config.server_ip,self.config.server_port),
             })
 
-    def get_lineup_status(self,path,**params):
-        return json.dumps({
+    async def get_lineup_status(self,request):
+        return web.json_response({
             'ScanInProgress':0,
             'ScanPossible':1,
             'Source':'Cable'
         })
 
-    def get_lineup_json(self,path,**params):
-        self.data.rescan()
-        return json.dumps(list(self.data.lineup.values()))
+    async def get_lineup_json(self,request):
+        await self.data.rescan()
+        return web.json_response(list(self.data.lineup.values()))
 
     #serve M#U/XMLTV
-    def get_m3u(self,path,**params):
-        self.data.rescan()
-        return '\n'.join(self.data.generate_m3u())
+    async def get_m3u(self,request):
+        await self.data.rescan()
+        return web.Response(text='\n'.join(await self.data.build_m3u()))
 
-    def get_xmltv(self,path,**params):
-        self.data.rescan(get_xmltv=True)
+    async def get_xmltv(self,request):
+        await self.data.rescan(get_xmltv=True)
         if self.data.xmltv_cache:
-            return self.data.build_xmltv()
+            return web.Response(text=await self.data.build_xmltv(), content_type='application/xml')
         else:
-            self.respond(code=404)
+            return web.Response(status=503)
 
     #serve HTML pages
-    def get_lineup(self,path,**params):
+    async def get_lineup(self,request):
         html='''<p><table>'''
         if self.data.lineup:
             for g in self.data.group_order:
@@ -218,21 +176,21 @@ class TunerHandler(RequestHandler):
         <td colspan=2></td>
         <td><input type=submit name='add_filter' value="Add filter"></td></tr>
         </table></p></form>'''
-        return self.html_start()+html+self.html_end()    
+        return web.Response(text=self.html_start()+html+self.html_end(await self.config.get_config()), content_type='text/html')
 
-    def get_log(self,path,**params):
+    async def get_log(self,request):
         #serve logs
         html='<p>'
         for l in LOGQ:
             html+=escape(l.msg)+'<br>'
         html+='</p>'
-        return self.html_start()+html+self.html_end()    
+        return web.Response(text=self.html_start()+html+self.html_end(await self.config.get_config()), content_type='text/html')
 
-    def get_status(self,path,**params):
+    async def get_status(self,request):
         html=''
-        if self.streamproxy.procs:
+        if self.procs:
             html+='''<p><table><tr><th>pid</th><th>client</th><th>stream</th><th>command</th></tr>'''
-            for pid,args in self.streamproxy.procs.items():
+            for pid,args in self.procs.items():
                 html+='<tr><td>%s</td><td>%s</td><td>%s</td><td>%s</td></tr>\n'%(pid,*args)
             html+='''
             </table>
@@ -267,10 +225,11 @@ class TunerHandler(RequestHandler):
             html+='<tr><th>XMLTV</th><td colspan=6><a href="'+url+'">'+url+'</a>'+(cached if self.data.xmltv_cache else '')+'</tr>'
         html+='''</table></p>'''
         html+='''<p><table>'''
-        for (k,v) in sorted(self.config.reload().items()):
+        env=await self.config.reload()
+        for (k,v) in sorted(env.items()):
             html+='<tr><th>%s</th><td>%s</td></tr>\n'%(escape(k),escape(str(v)))
         html+='''</table></p>'''
-        return self.html_start()+html+self.html_end()    
+        return web.Response(text=self.html_start()+html+self.html_end(await self.config.get_config()), content_type='text/html')
 
     def html_start(self):
         return '''<html>
@@ -287,24 +246,66 @@ class TunerHandler(RequestHandler):
             <th><a href='/lineup'>lineup</a>&nbsp;</th><td>(%s streams)</td>
         </tr></table></p>''' % (len(list(self.data.lineup)) if self.data.lineup else '0')
 
-    def html_end(self):
+    def html_end(self,config_text):
         html=''
         if self.config.config_file:
             html+='''
             <p>&nbsp;</p><p><form method=post>
             <textarea style=font-family:monospace name=config cols=80 rows=25>'''
-            html+=escape(self.config.get_config())
+            html+=escape(config_text)
             html+='''</textarea><br>
             <input type=submit value="save config">
             </form></p>'''
         html+='''</body><html>'''
         return html
-        
 
-    #app config
 
-    #handle these params before routing
-    params={
+    #handle form data POST
+    async def form_handler(self,request):
+        data = await request.post()
+        for k,handler in self.form_routes.items():
+            if k in data:
+                await handler(self,k,data[k],**data) #call handler with this instance
+        return web.Response(status=302,headers={'Location':request.path}) #redirect to posting page
+
+
+    #handle HDHR channel scan request
+    async def lineup_post(self,request):
+        await self.rescan()
+        return web.Response()
+
+
+    #form field handlers
+    async def rescan(self,*args,**kwargs):
+        #trigger a full account/lineup rescan
+        await self.data.rescan(force_rescan=True)
+
+    async def add_filter(self,key,val,**params):
+        if val:
+            self.config.add_filter(key,val,
+                start=key+'_start' in params,
+                end=key+'_end' in params,
+                exclude=key+'_exxclude' in params,
+                rename_to=params.get(key+'_to'),
+                comment=params['comment']
+            )
+            await self.data.rescan() #rebuild lineup
+    
+    async def save_config(self,key,val,**params):
+        # config text was submitted
+        await self.config.write(val)
+        await self.data.rescan()
+    
+    async def add_account(self,key,val,**params):
+        # url/hash was submitted, add account and rescan
+        if val:
+            await self.config.add_account(val)
+            #reload config, scan sources if fetch is True, rebuild lineup
+            await self.data.rescan(True)
+
+
+    #form routing table
+    form_routes={
         'rescan':rescan,
         'config':save_config,
         'add_account':add_account,
@@ -315,24 +316,24 @@ class TunerHandler(RequestHandler):
         'replace':add_filter
     }
 
-    routes={
-        'GET':{     # paths we serve
-            '/stream/':get_stream,
-            '/discover.json$':get_discover,
-            '/lineup_status.json$':get_lineup_status,
-            '/lineup.json$':get_lineup_json,
-            '/lineup$':get_lineup,
-            '/m3u$':get_m3u,
-            '/xmltv$':get_xmltv,
-            '/log$':get_log,
-            '/$':get_status
-        },
-        'POST':{    # rescan on HDHR rescan command
-            '/lineup.post':rescan
-        }
-    }
-    # remaining POST routes are same as GET routes
-    routes['POST'].update(routes['GET'])
+
+    #return path routing table
+    def get_routes(self):
+        return [
+            web.get('/stream/{stream}',self.get_stream),
+            web.get('/m3u',self.get_m3u),
+            web.get('/xmltv',self.get_xmltv),
+            web.get('/discover.json',self.get_discover),
+            web.get('/lineup_status.json',self.get_lineup_status),
+            web.get('/lineup.json',self.get_lineup_json),
+            web.get('/lineup',self.get_lineup),
+            web.get('/log',self.get_log),
+            web.get('/',self.get_status),
+            web.post('/lineup.post',self.lineup_post),
+            web.post('/',self.form_handler),
+            web.post('/lineup',self.form_handler),
+            web.post('/log',self.form_handler),
+         ]
 
 
 class LogQ(deque):
@@ -350,7 +351,6 @@ Config.args.update( dict(
         direct=(int,0),
         buffer=(int,1024*1024) #buffer size for streaming
 ))
-
 
 #this will be written to the config file if it does not exist
 DEFAULT_CONFIG='''
@@ -385,14 +385,15 @@ replace=SHD$,FHD$,UHD$
 
 '''
 
-def main(*args):
+
+async def setup(config_file=None):
     global LOGQ
     #init config
-    config=Config(args[0] if args else None)
+    config=Config(config_file)
     if config.config_file and not os.path.exists(config.config_file):
         with open(self.config_file,'w') as f:
             f.write(DEFAULT_CNFIG)
-    env=config.reload()
+    env=await config.reload()
     #init logging
     LOGQ=LogQ(maxlen=config.logdepth)
     logging.basicConfig(level=int(config.loglevel), 
@@ -400,16 +401,19 @@ def main(*args):
                         handlers=[logging.StreamHandler(),QueueHandler(LOGQ)])
     for k,v in env.items():
         logging.debug('%s=%s',k,v)
-    # init data store
+    # init datastore
     data=Data(config)
-    data.rescan()
-    # init server and set context
-    app = App((config.server_ip, config.server_port), TunerHandler)
-    app.server.config=config
-    app.server.data=data
-    app.server.streamproxy=StreamProxy(config,data)
-    # start server
-    app.run()
+    await data.rescan()
+    return config,data
 
-if __name__ == '__main__':    
+def main(*args):
+    # setup app
+    config,data=asyncio.run(setup(*args))
+    tuner = Tuner(config,data)
+    app = web.Application() 
+    app.add_routes(tuner.get_routes())
+    # start server
+    web.run_app(app,host=config.server_ip, port=config.server_port)
+
+if __name__ == '__main__':
     main(*sys.argv[1:])

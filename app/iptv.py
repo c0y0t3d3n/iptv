@@ -4,14 +4,13 @@ import os
 import time
 from datetime import datetime
 import logging
-import json
 import re
-import requests
 import random
-from threading import Lock
 from urllib.parse import quote, urlsplit
 from io import StringIO, BytesIO
 import xmltv
+import asyncio
+from aiohttp import ClientSession, ClientTimeout  
 
 def upper(s):
     global UPPER
@@ -64,11 +63,11 @@ class Config:
 
     def __init__(self,config_file=None):
         self.config_file=config_file
-        self.lock=Lock()
+        self.lock=asyncio.Lock()
 
-    def reload(self):
+    async def reload(self):
         '''read, build, and return config'''
-        with self.lock:
+        async with self.lock:
             config={}
             #config from k=v in file
             if self.config_file:
@@ -120,16 +119,16 @@ class Config:
             # return config for info 
             return dict((e,getattr(self,e,None)) for e in self.args)
 
-    def get_config(self):
-        with self.lock:
+    async def get_config(self):
+        async with self.lock:
             try:
                 with open(self.config_file) as f:
                     return f.read(-1)
             except Exception as e:
                 return str(e)
 
-    def get_accounts(self):
-        with self.lock:
+    async def get_accounts(self):
+        async with self.lock:
             accounts={}
             try:
                 with open(self.config_file) as f:
@@ -147,8 +146,8 @@ class Config:
                 logging.error('%s reading config',e)
         return accounts
 
-    def write(self,text):    
-        with self.lock:    
+    async def write(self,text):    
+        async with self.lock:    
             try:
                 with open(self.config_file,'w') as f:
                     f.write(text)
@@ -156,8 +155,8 @@ class Config:
             except Exception as e:
                 logging.error('%s writing %s',e,self.config_file)
 
-    def append(self,text):
-        with self.lock:
+    async def append(self,text):
+        async with self.lock:
             try:
                 with open(self.config_file,'a') as f:
                     f.write(text+'\n')
@@ -165,13 +164,13 @@ class Config:
             except Exception as e:
                 logging.error('%s writing config',e)
 
-    def add_account(self,text):
+    async def add_account(self,text):
         text=text.strip()
         info=parse_url(text)
         if info:
-            self.append(info)
+            await self.append(info)
 
-    def add_filter(self,filter_type,filter_text,start=False,end=False,exclude=False,rename_to=None,comment=''):
+    async def add_filter(self,filter_type,filter_text,start=False,end=False,exclude=False,rename_to=None,comment=''):
         if exclude:
             filter_text='!'+filter_text
         if start:
@@ -180,7 +179,7 @@ class Config:
             filter_text+='$'
         if rename_to:
             filter_text+='='+rename_to
-        self.append(filter_type+'='+filter_text+'#'+comment)
+        await self.append(filter_type+'='+filter_text+'#'+comment)
 
 
 class Account:
@@ -216,12 +215,12 @@ class Data:
         self.last_refresh=0
         self.last_rescan=0
         self.xmltv_cache=None
-        self.refresh_lock=Lock()
-        self.rescan_lock=Lock()
+        self.refresh_lock=asyncio.Lock()
+        self.rescan_lock=asyncio.Lock()
         self.accounts={}
         self.lineup={}
         
-    def xtream_request(self,url,a,action=None,path='player_api.php',raw=False):
+    async def xtream_request(self,url,a,action=None,path='player_api.php',raw=False):
         # xtream codes API requests
         headers={}
         if self.config.user_agent:
@@ -229,15 +228,15 @@ class Data:
         params={'username':a.username,'password':a.password}
         if action:
             params.update(action=action)
-        r=requests.get(url+'/'+path,params=params,headers=headers,timeout=self.config.timeout if self.config.timeout else None)
-        r.raise_for_status()
-        return r.text if raw else json.loads(r.text)
+        async with ClientSession(timeout=ClientTimeout(connect=self.config.timeout if self.config.timeout else None)) as s:
+            async with s.get(url+'/'+path,params=params,headers=headers) as r:
+                return await r.text() if raw else await r.json()
 
-    def check_acct(self,url,a):
+    async def check_acct(self,url,a):
         # get server and account info
         info=None
         try:
-            info=self.xtream_request(url,a,'server_info')
+            info=await self.xtream_request(url,a,'server_info')
             return Account(
                 a.username, a.password, a.priority, 
                 info['user_info']['active_cons'], 
@@ -251,12 +250,12 @@ class Data:
             logging.warning('refresh: %s checking %s %s %s %s',e,url,a.username,a.password,a.info)
             return Account(a.username,a.password,a.priority,None,None,str(info),None,info)
             
-    def refresh_accts(self,accounts=None,force_refresh=False):
+    async def refresh_accts(self,accounts=None,force_refresh=False):
         #refresh status of accounts from source if not cached
-        with self.refresh_lock:
+        async with self.refresh_lock:
             if force_refresh or not self.last_refresh or self.last_refresh + self.config.cache < time.time():
                 if accounts is None: #if no list passed use comfig accounts
-                    accounts=self.config.get_accounts()
+                    accounts=await self.config.get_accounts()
                 self.accounts={}
                 # check accounts and return map of source to accounts sorted by free slots
                 for url,accts in accounts.items():
@@ -264,7 +263,7 @@ class Data:
                         accts=random.sample(accts,min(self.config.check,len(accts)))
                     logging.info('refresh: %s',url)
                     for a in accts:
-                        ra=self.check_acct(url,a)
+                        ra=await self.check_acct(url,a)
                         logging.debug('refresh: %s',ra.info)
                         self.accounts.setdefault(url,[]).append(ra)
                         time.sleep(self.config.delay)
@@ -288,7 +287,7 @@ class Data:
         logging.debug('select: %s',selected_sources)
         return selected_sources
 
-    def fetch_lineup(self,selected_sources):
+    async def fetch_lineup(self,selected_sources):
         # fetch a lineup from each source, filter/modify channel names, and merge linueps
         self.groups_cache={}
         self.streams_cache={}
@@ -296,9 +295,9 @@ class Data:
             logging.info('lineup: fetch from %s',url)
             try:
                 #fetch from selected source account, strip commas as plex does not like them and we can't filter on them
-                self.groups_cache[url]=dict( (e['category_id'],upper(e['category_name'].replace(',',''))) for e in self.xtream_request(url,a,'get_live_categories') )
+                self.groups_cache[url]=dict( (e['category_id'],upper(e['category_name'].replace(',',''))) for e in await self.xtream_request(url,a,'get_live_categories') )
                 streams=self.streams_cache.setdefault(url,[])
-                for s in self.xtream_request(url,a,'get_live_streams'):
+                for s in await self.xtream_request(url,a,'get_live_streams'):
                     s['name']=upper(s['name'].replace(',',''))
                     streams.append(s)
                 logging.debug('fetch: %s %s groups %s streams',url,len(self.groups_cache[url]),len(self.streams_cache[url]))
@@ -306,7 +305,7 @@ class Data:
                 logging.warning('fetch: %s for %s %s %s',e,url,a.username,a.password)
                 continue
 
-    def build_lineup(self,use_source_url=False):
+    async def build_lineup(self,acct=None):
         self.source_groups={}
         self.group_order=[]
         ids={}  
@@ -376,8 +375,14 @@ class Data:
                     if s[1]:
                         ids[s[1]]=k
                     #create channel and add this source
-                    if use_source_url:
-                        stream_url=self.config.format % (a.info['server_info']['url'], a.info['server_info']['port'], a.username, a.password, s[3])
+                    if acct: # build limeup for single account
+                        stream_url=self.config.format % (
+                            acct.info['server_info']['url'], 
+                            acct.info['server_info']['port'], 
+                            acct.username, 
+                            acct.password, 
+                            s[3]
+                        )
                     else:
                         stream_url='http://%s:%s/stream/%s' % (self.config.server_ip,self.config.server_port,quote(k))
                     lineup.setdefault(k, {
@@ -418,12 +423,12 @@ class Data:
                 logging.warning('lineup: %s',e)
         return self.lineup
 
-    def fetch_xmltv(self,selected_sources):
+    async def fetch_xmltv(self,selected_sources):
         self.xmltv_cache={'data':{},'channels':{},'programs':[]}
         for url, a in selected_sources:
             logging.info('xmltv: fetch from %s',url)
             try:
-                xmlin=StringIO(self.xtream_request(url,a,path='xmltv.php',raw=True))
+                xmlin=StringIO(await self.xtream_request(url,a,path='xmltv.php',raw=True))
                 xmlin.seek(0)
                 self.xmltv_cache['data'].update(xmltv.read_data(xmlin).items())
                 n=0
@@ -445,7 +450,7 @@ class Data:
             except Exception as e:
                 logging.warning('xmltv: %s for %s %s %s',e,url,a.username,a.password)
 
-    def build_xmltv(self):
+    async def build_xmltv(self):
         ids=set(l['GuideID'] for l in self.lineup.values()) #EPG ID of channels in lineup
         chs=[]
         writer=xmltv.Writer(**dict((k.replace('-','_'),v) for k,v in self.xmltv_cache['data'].items()))
@@ -469,56 +474,60 @@ class Data:
         logging.info('xmltv: %s channels, %s programs',nc,np)
         return xmlout.read().decode()
 
-    def rescan(self,force_rescan=None,get_xmltv=False):
-        with self.rescan_lock:
-            try:
-                self.config.reload()
-                #refresh account status and lineup if fetch=True, or cache expired
-                if force_rescan or not self.last_rescan or self.last_rescan + self.config.lineup_cache < time.time():
-                    #load accounts from config
-                    self.refresh_accts(force_refresh=force_rescan)
-                    self.fetch_lineup(self.select_sources(check_free=False))
-                    self.xmltv_cache=None #clear cached XMLTV on lineup rescan 
-                    self.last_rescan=time.time()
-                else:
-                    logging.debug('lineup cached for %ss',int(int(self.config.lineup_cache)+self.last_rescan-time.time()))
-                #refresh xmltv if requested
-                if get_xmltv and not self.xmltv_cache:
-                    self.fetch_xmltv(self.select_sources(check_free=False))
-                #build lineup
-                self.build_lineup()
-            except Exception as e:
-                logging.warning('no usable accounts: %s',e)
-
-    def generate_m3u(self):
+    async def build_m3u(self):
         m3u=[]
         m3u.append('#EXTM3U')
         for k,l in self.lineup.items():
             m3u.append('#EXTINF:-1 group-title="%s" tvg-id="%s" tvg-name="%s",%s\n%s' % (l['GuideCategory'],l['GuideID'],l['GuideName'],l['GuideNumber'],l['URL']))
         return m3u
 
-if __name__ == '__main__':
+    async def rescan(self,force_rescan=None,get_xmltv=False):
+        async with self.rescan_lock:
+            try:
+                await self.config.reload()
+                #refresh account status and lineup if fetch=True, or cache expired
+                if force_rescan or not self.last_rescan or self.last_rescan + self.config.lineup_cache < time.time():
+                    #load accounts from config
+                    await self.refresh_accts(force_refresh=force_rescan)
+                    await self.fetch_lineup(self.select_sources(check_free=False))
+                    self.xmltv_cache=None #clear cached XMLTV on lineup rescan 
+                    self.last_rescan=time.time()
+                else:
+                    logging.debug('lineup cached for %ss',int(int(self.config.lineup_cache)+self.last_rescan-time.time()))
+                #refresh xmltv if requested
+                if get_xmltv and not self.xmltv_cache:
+                    await self.fetch_xmltv(self.select_sources(check_free=False))
+                #build lineup
+                await self.build_lineup()
+            except Exception as e:
+                logging.warning('no usable accounts: %s',e)
+
+
+async def main(url,m3u=None,xml=None):
     import logging
     config=Config(os.getenv('CONFIG'))
-    env=config.reload()
+    env=await config.reload()
     logging.basicConfig(level=config.loglevel)
     data=Data(config)
-    r=parse_url(sys.argv[1])
+    r=parse_url(url)
     if r:
         r=r.split() 
         url,a=r[0],Account(*r[1:3])
-        print (a)
-        data.refresh_accts({url:[a]})
+        await data.refresh_accts({url:[a]})
         a=data.accounts[url][0]
         print (url,' '.join(str(s) for s in a.data()))
-        if len(sys.argv)>2:
+        if m3u:
             if not config.streams:
                 config.streams=['']
-            data.fetch_lineup([(url,a)])
-            data.build_lineup(use_source_url=True)
-            with open(sys.argv[2],'w') as f:
-                f.write('\n'.join(data.generate_m3u()))
-            if len(sys.argv)>3:
-                data.fetch_xmltv([(url,a)])
-                with open(sys.argv[3],'w') as f:
-                    f.write(data.build_xmltv())
+            await data.fetch_lineup([(url,a)])
+            await data.build_lineup(a)
+            with open(m3u,'w') as f:
+                f.write('\n'.join(await data.build_m3u()))
+            if xml:
+                await data.fetch_xmltv([(url,a)])
+                with open(xml,'w') as f:
+                    f.write(await data.build_xmltv())
+
+if __name__ == '__main__':
+    asyncio.run(main(*sys.argv[1:]))
+
