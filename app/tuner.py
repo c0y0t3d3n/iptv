@@ -24,27 +24,28 @@ class Tuner:
         #serve stream URL or stream data
         k=unquote(request.match_info['stream'])
         if k in self.data.lineup:
-            logging.info('%s stream %s'%(request.remote,k))
+            logging.debug('%s stream %s'%(request.remote,k))
             # send the URL to plex
             try:
                 await self.data.refresh_accts()
                 l=self.data.lineup[k]
-                #get the best source/account for this channe;l
-                (source,acct)=self.data.select_sources(list(l['sources'].keys()))[0]
+                #get the best source/account for this channel
+                sources=await self.data.select_sources(list(l['sources'].keys()))
+                (source,acct)=sources[0]
                 #format the stream URL, return URL and account
                 url=self.config.format % (acct.info['server_info']['url'], 
                         acct.info['server_info']['port'], acct.username, acct.password, 
                         l['sources'][source])
                 if self.config.direct:
-                    logging.info('%s redirected to %s', request.remote, url)
+                    logging.info('stream: %s %s redirected to %s', k, request.remote, url)
                     return web.Response(status=302,headers={'Location':url})
                 else:  
                     # remux with ffmpeg
                     args = self.config.cmd % url
-                    logging.info('%s starting %s', request.remote, args)
+                    logging.debug('stream: %s spawning %s', request.remote, args)
                     try:
                         proc = await asyncio.create_subprocess_exec(*args.split(), stdout=asyncio.subprocess.PIPE)
-                        logging.info('%s pid %s started', request.remote, proc.pid)
+                        logging.info('stream: %s %s pid %s started', request.remote, k, proc.pid)
                         self.procs[proc.pid]=(request.remote,k,args)
                     except Exception as e:
                         logging.exception(e)
@@ -53,13 +54,13 @@ class Tuner:
                         response=web.StreamResponse()
                         await response.prepare(request)
                         acct.active_conns+=1 #update cached account
-                        while True: #cmd exited
+                        while True:
                             data = await proc.stdout.read(int(self.config.buffer))
                             if not data: # cmd exited, source dropped the stream
                                 break
                             await response.write(data)
                         # cmd exited likely source dropped the stream
-                        logging.warning('%s pid %s stream failed',request.remote, proc.pid)
+                        logging.warning('stream: %s %s pid %s failed',request.remote, k, proc.pid)
                         if self.config.auto_pri:
                             # drop priority for this source on fail, will be reset on refresh
                             for sa in self.data.accounts[acct.source]:
@@ -67,16 +68,15 @@ class Tuner:
                         else:
                             self.data.last_refresh=0 #expire cache if 'best' account still fails
                     except OSError: 
-                        logging.debug('%s pid %s disconnected',request.remote, proc.pid)
+                        logging.debug('stream: %s %s pid %s disconnected',request.remote, k, proc.pid)
                     except Exception as e:
                         logging.exception(e)
                     try:
-                        proc.kill() # stop cmd if running
-                        await proc.wait() # wait for exit
+                        proc.kill()
                     except:
                         pass #it gone
                     acct.active_conns-=1
-                    logging.info('%s pid %s stop (%d)', request.remote, proc.pid, proc.returncode)
+                    logging.info('stream: %s %s pid %s stopped', request.remote, k, proc.pid)
                     del self.procs[proc.pid]
                     return response
             except Exception as e: #no source available for this stream
@@ -105,48 +105,48 @@ class Tuner:
         })
 
     async def get_lineup_json(self,request):
-        await self.data.rescan()
-        return web.json_response(list(self.data.lineup.values()))
+        lineup = await self.data.rescan()
+        return web.json_response(list(lineup.values())) if lineup else web.Response(status=503)
+
 
     #serve M#U/XMLTV
     async def get_m3u(self,request):
-        await self.data.rescan()
-        return web.Response(text='\n'.join(await self.data.build_m3u()))
+        lineup = await self.data.rescan()
+        return web.Response(text='\n'.join(await self.data.build_m3u(lineup))) if lineup else web.Response(status=503)
 
     async def get_xmltv(self,request):
-        await self.data.rescan(get_xmltv=True)
-        if self.data.xmltv_cache:
-            return web.Response(text=await self.data.build_xmltv(), content_type='application/xml')
-        else:
-            return web.Response(status=503)
+        xmltv = await self.data.rescan(get_xmltv=True)
+        return web.Response(text=xmltv, content_type='application/xml') if xmltv else web.Response(status=503)
+
 
     #serve HTML pages
     async def get_lineup(self,request):
         html='''<p><table>'''
-        if self.data.lineup:
-            for g in self.data.group_order:
-                html+='<tr/><tr><th colspan=2 id="%s">%s</th></tr>\n'%(escape(quote(g)),escape(g))
-                for k,l in [(k,l) for k,l in self.data.lineup.items() if l['GuideCategory']==g]:
-                    html+='<tr><td>%s</td><td><a href="%s">%s</a></td><td>%s</td></tr>\n'%(
-                        escape(''.join(s.split('//')[1][0] for s in l['sources'])),
-                        escape(l['URL']),
-                        escape(l['GuideName']),
-                        escape(l['GuideID']) if l['GuideID'] else ''
-                    )
+        async with self.data.lineup_lock:
+            if self.data.lineup:
+                for g in self.data.group_order:
+                    html+='<tr/><tr><th colspan=2 id="%s">%s</th></tr>\n'%(escape(quote(g)),escape(g))
+                    for k,l in [(k,l) for k,l in self.data.lineup.items() if l['GuideCategory']==g]:
+                        html+='<tr><td>%s</td><td><a href="%s">%s</a></td><td>%s</td></tr>\n'%(
+                            escape(''.join(s.split('//')[1][0] for s in l['sources'])),
+                            escape(l['URL']),
+                            escape(l['GuideName']),
+                            escape(l['GuideID']) if l['GuideID'] else ''
+                        )
+                html+='''</table></p>'''
+            html+='''<p><table>'''
+            for s,sg in self.data.source_groups.items():
+                html+='<tr><th>%s</th><td>%s</td></tr>'%(
+                    s,
+                    ','.join('<a href="#%s">%s</a>'%(escape(quote(g[0])),escape(g[0])) if g[1] else escape(g[0]) for g in sorted(sg.values()))
+                )
             html+='''</table></p>'''
-        html+='''<p><table>'''
-        for s,sg in self.data.source_groups.items():
-            html+='<tr><th>%s</th><td>%s</td></tr>'%(
-                s,
-                ','.join('<a href="#%s">%s</a>'%(escape(quote(g[0])),escape(g[0])) if g[1] else escape(g[0]) for g in sorted(sg.values()))
-            )
-        html+='''</table></p>'''
-        # filter builder
-        html+='''<datalist id=group-select>'''
-        for s,sg in self.data.source_groups.items():
-            #escape | character, this is common in group names and will break regexes
-            html+='\n'.join('<option value="%s">'%escape(g[0].replace('|','\\|')) for g in sorted(sg.values()))
-        html+='''</datalist>'''
+            # filter builder
+            html+='''<datalist id=group-select>'''
+            for s,sg in self.data.source_groups.items():
+                #escape | character, this is common in group names and will break regexes
+                html+='\n'.join('<option value="%s">'%escape(g[0].replace('|','\\|')) for g in sorted(sg.values()))
+            html+='''</datalist>'''
         html+='''<form method=post><p><table>
         <tr><th>group rename:</th>
         <td><input type=checkbox title='match at start' name=group_rename_start></td>
@@ -261,13 +261,13 @@ class Tuner:
 
 
     #handle form data POST
-    async def form_handler(self,request):
+    async def handle_post(self,request):
         data = await request.post()
-        for k,handler in self.form_routes.items():
-            if k in data:
-                await handler(self,k,data[k],**data) #call handler with this instance
+        for k in data:
+            handler=self.get_form_handler(k)
+            if handler:
+                await handler(k,data[k],**data)
         return web.Response(status=302,headers={'Location':request.path}) #redirect to posting page
-
 
     #handle HDHR channel scan request
     async def lineup_post(self,request):
@@ -301,21 +301,21 @@ class Tuner:
         if val:
             await self.config.add_account(val)
             #reload config, scan sources if fetch is True, rebuild lineup
-            await self.data.rescan(True)
+            await self.data.rescan(force_rescan=True)
 
 
-    #form routing table
-    form_routes={
-        'rescan':rescan,
-        'config':save_config,
-        'add_account':add_account,
-        'groups':add_filter,
-        'group_rename':add_filter,
-        'streams':add_filter,
-        'rename':add_filter,
-        'replace':add_filter
-    }
-
+    #return form field routing table
+    def get_form_handler(self,k):
+        return{
+            'rescan':self.rescan,
+            'config':self.save_config,
+            'add_account':self.add_account,
+            'groups':self.add_filter,
+            'group_rename':self.add_filter,
+            'streams':self.add_filter,
+            'rename':self.add_filter,
+            'replace':self.add_filter
+        }.get(k)
 
     #return path routing table
     def get_routes(self):
@@ -330,9 +330,9 @@ class Tuner:
             web.get('/log',self.get_log),
             web.get('/',self.get_status),
             web.post('/lineup.post',self.lineup_post),
-            web.post('/',self.form_handler),
-            web.post('/lineup',self.form_handler),
-            web.post('/log',self.form_handler),
+            web.post('/',self.handle_post),
+            web.post('/lineup',self.handle_post),
+            web.post('/log',self.handle_post),
          ]
 
 

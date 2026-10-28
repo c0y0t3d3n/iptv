@@ -215,8 +215,9 @@ class Data:
         self.last_refresh=0
         self.last_rescan=0
         self.xmltv_cache=None
-        self.refresh_lock=asyncio.Lock()
-        self.rescan_lock=asyncio.Lock()
+        self.accounts_lock=asyncio.Lock()
+        self.lineup_lock=asyncio.Lock()
+        self.xmltv_lock=asyncio.Lock()
         self.accounts={}
         self.lineup={}
         
@@ -252,7 +253,7 @@ class Data:
             
     async def refresh_accts(self,accounts=None,force_refresh=False):
         #refresh status of accounts from source if not cached
-        async with self.refresh_lock:
+        async with self.accounts_lock:
             if force_refresh or not self.last_refresh or self.last_refresh + self.config.cache < time.time():
                 if accounts is None: #if no list passed use comfig accounts
                     accounts=await self.config.get_accounts()
@@ -273,19 +274,20 @@ class Data:
             else:
                 logging.debug('accounts cached for %ss',int(self.config.cache+self.last_refresh-time.time()))
 
-    def select_sources(self,source_list=None,check_free=True):
+    async def select_sources(self,source_list=None,check_free=True):
         # return list of url, acct by highest priority and most free slots
         # first account per source will be most free slots, so filter to source in list if active and optinally any free slots
         # then sort by priority,-available to prefer highest  priority sources even if less free slots
-        selected_sources=sorted(
-            ( (url,accts[0]) for url,accts in self.accounts.items() \
-                if (not source_list or url in source_list) \
-                and accts[0].active() \
-                and (not check_free or accts[0].available() > 0) ),
-            key=lambda e:(e[1].priority,-e[1].available())
-        )
-        logging.debug('select: %s',selected_sources)
-        return selected_sources
+        async with self.accounts_lock:
+            selected_sources=sorted(
+                ( (url,accts[0]) for url,accts in self.accounts.items() \
+                    if (not source_list or url in source_list) \
+                    and accts[0].active() \
+                    and (not check_free or accts[0].available() > 0) ),
+                key=lambda e:(e[1].priority,-e[1].available())
+            )
+            logging.debug('select: %s',selected_sources)
+            return selected_sources
 
     async def fetch_lineup(self,selected_sources):
         # fetch a lineup from each source, filter/modify channel names, and merge linueps
@@ -403,19 +405,18 @@ class Data:
             if self.config.min_sources:
                 lineup=dict((k,l) for k,l in lineup.items() if l['GuideID'] and len(l['sources'])>=self.config.min_sources)
             # now order the final lineup
-            ordered_lineup={}
+            self.lineup={}
             ordered_groups=dict(sorted((l['GuideCategory'],False) for l in lineup.values()))
             for o in self.config.order+['']: #empty string at end will output all remaining groups
                 for g in ordered_groups:
                     #if group matches pattern and has not been output
                     if not ordered_groups[g] and re.search(o,g):
                         #output group ahd mark as output
-                        ordered_lineup.update((k,l) for k,l in lineup.items() if l['GuideCategory']==g)
+                        self.lineup.update((k,l) for k,l in lineup.items() if l['GuideCategory']==g)
                         ordered_groups[g]=True
                         logging.debug('lineup: ordering group %s',g)
                         self.group_order.append(g)
-            logging.info('lineup: %s groups, %s streams',len(ordered_groups),len(ordered_lineup))
-            self.lineup=ordered_lineup
+            logging.info('lineup: %s groups, %s streams',len(ordered_groups),len(self.lineup))
         except Exception as e:
             try:
                 logging.warning('lineup: %s, last pattern was %s',e,p)
@@ -451,7 +452,8 @@ class Data:
                 logging.warning('xmltv: %s for %s %s %s',e,url,a.username,a.password)
 
     async def build_xmltv(self):
-        ids=set(l['GuideID'] for l in self.lineup.values()) #EPG ID of channels in lineup
+        async with self.lineup_lock:
+            ids=set(l['GuideID'] for l in self.lineup.values()) #EPG ID of channels in lineup
         chs=[]
         writer=xmltv.Writer(**dict((k.replace('-','_'),v) for k,v in self.xmltv_cache['data'].items()))
         #filter to lineup channels
@@ -474,33 +476,39 @@ class Data:
         logging.info('xmltv: %s channels, %s programs',nc,np)
         return xmlout.read().decode()
 
-    async def build_m3u(self):
+    async def build_m3u(self,lineup):
         m3u=[]
         m3u.append('#EXTM3U')
-        for k,l in self.lineup.items():
+        for k,l in lineup.items():
             m3u.append('#EXTINF:-1 group-title="%s" tvg-id="%s" tvg-name="%s",%s\n%s' % (l['GuideCategory'],l['GuideID'],l['GuideName'],l['GuideNumber'],l['URL']))
         return m3u
 
     async def rescan(self,force_rescan=None,get_xmltv=False):
-        async with self.rescan_lock:
-            try:
-                await self.config.reload()
+        try:
+            await self.config.reload()
+            async with self.lineup_lock:
                 #refresh account status and lineup if fetch=True, or cache expired
                 if force_rescan or not self.last_rescan or self.last_rescan + self.config.lineup_cache < time.time():
                     #load accounts from config
                     await self.refresh_accts(force_refresh=force_rescan)
-                    await self.fetch_lineup(self.select_sources(check_free=False))
-                    self.xmltv_cache=None #clear cached XMLTV on lineup rescan 
+                    await self.fetch_lineup(await self.select_sources(check_free=False))
                     self.last_rescan=time.time()
+                    self.xmltv_cache=None #clear cached XMLTV on lineup rescan 
                 else:
                     logging.debug('lineup cached for %ss',int(int(self.config.lineup_cache)+self.last_rescan-time.time()))
-                #refresh xmltv if requested
-                if get_xmltv and not self.xmltv_cache:
-                    await self.fetch_xmltv(self.select_sources(check_free=False))
                 #build lineup
-                await self.build_lineup()
-            except Exception as e:
-                logging.warning('no usable accounts: %s',e)
+                lineup = await self.build_lineup()
+            #get xmltv if requested
+            if get_xmltv:
+                if not self.xmltv_cache:
+                   async with self.xmltv_lock: 
+                        await self.fetch_xmltv(await self.select_sources(check_free=False))
+                return await self.build_xmltv()
+            else:
+                return lineup
+        except Exception as e:
+            logging.debug(e)
+            logging.warning('rescan: no usable accounts')
 
 
 async def main(url,m3u=None,xml=None):
@@ -520,9 +528,9 @@ async def main(url,m3u=None,xml=None):
             if not config.streams:
                 config.streams=['']
             await data.fetch_lineup([(url,a)])
-            await data.build_lineup(a)
+            lineup=await data.build_lineup(a)
             with open(m3u,'w') as f:
-                f.write('\n'.join(await data.build_m3u()))
+                f.write('\n'.join(await data.build_m3u(lineup)))
             if xml:
                 await data.fetch_xmltv([(url,a)])
                 with open(xml,'w') as f:
