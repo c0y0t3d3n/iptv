@@ -266,7 +266,7 @@ class Data:
                         ra=await self.check_acct(url,a)
                         logging.debug('refresh: %s',ra.info)
                         self.accounts.setdefault(url,[]).append(ra)
-                        time.sleep(self.config.delay)
+                        await asyncio.sleep(self.config.delay)
                     #sort accounts to put active most free slots first
                     self.accounts[url].sort(key=lambda a:(a.active(), a.available()), reverse=True)
                 self.last_refresh=time.time()
