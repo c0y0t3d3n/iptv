@@ -5,7 +5,7 @@ import os
 import logging
 from logging.handlers import QueueHandler
 from collections import deque
-from urllib.parse import quote
+from urllib.parse import quote, unquote
 from html import escape
 import asyncio
 from aiohttp import web
@@ -282,10 +282,10 @@ class Tuner:
 
     async def add_filter(self,key,val,**params):
         if val:
-            self.config.add_filter(key,val,
+            await self.config.add_filter(key,val,
                 start=key+'_start' in params,
                 end=key+'_end' in params,
-                exclude=key+'_exxclude' in params,
+                exclude=key+'_exclude' in params,
                 rename_to=params.get(key+'_to'),
                 comment=params['comment']
             )

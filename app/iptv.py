@@ -171,14 +171,14 @@ class Config:
             await self.append(info)
 
     async def add_filter(self,filter_type,filter_text,start=False,end=False,exclude=False,rename_to=None,comment=''):
-        if exclude:
-            filter_text='!'+filter_text
         if start:
             filter_text='^'+filter_text
         if end:
             filter_text+='$'
         if rename_to:
             filter_text+='='+rename_to
+        if exclude:
+            filter_text='!'+filter_text
         await self.append(filter_type+'='+filter_text+'#'+comment)
 
 
