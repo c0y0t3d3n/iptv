@@ -44,7 +44,9 @@ class Tuner:
                     args = self.config.cmd % url
                     logging.debug('stream: %s spawning %s', request.remote, args)
                     try:
-                        proc = await asyncio.create_subprocess_exec(*args.split(), stdout=asyncio.subprocess.PIPE)
+                        proc = await asyncio.create_subprocess_exec(*args.split(), 
+                                                                    stdout=asyncio.subprocess.PIPE,
+                                                                    limit=self.config.buffer )
                         logging.info('stream: %s %s pid %s started', request.remote, k, proc.pid)
                         self.procs[proc.pid]=(request.remote,k,args)
                     except Exception as e:
@@ -55,7 +57,7 @@ class Tuner:
                         await response.prepare(request)
                         acct.active_conns+=1 #update cached account
                         while True:
-                            data = await proc.stdout.read(int(self.config.buffer))
+                            data = await proc.stdout.read(self.config.buffer)
                             if not data: # cmd exited, source dropped the stream
                                 break
                             await response.write(data)
@@ -92,7 +94,7 @@ class Tuner:
         return web.json_response({
                 "DeviceID": "TUNER",
                 "FriendlyName": "Tuner",
-                "TunerCount": int(self.config.tuner_count),
+                "TunerCount": self.config.tuner_count,
                 'BaseURL':'http://%s:%s'%(self.config.server_ip,self.config.server_port),
                 'LineupURL':'http://%s:%s/lineup.json'%(self.config.server_ip,self.config.server_port),
             })
