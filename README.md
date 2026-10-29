@@ -76,6 +76,7 @@ Options can set in config or environment
 `DELAY=<seconds>` add a delay between refreshing each accoumnt.\
 `UPPER=0` disable uppercasing of group and channel names.\
 `LOGLEVEL=<level>` set the logging level. 10=debug, 20=info, 30=warning, 40=error. Must be set in environment.\
-`LOGDEPTH==<n>` retain `n` messages on the log page.\
+`LOGDEPTH=<n>` retain `n` messages on the log page.\
+`VERBOSE=1` log all requests.\
 `FORMAT=<string>` URL format for requesting a stream from the source. %s substitutions will be host, port, username, passsword, stream ID.\
 `CMD=` will override the command used to fetch and remux the stream. Whatever you use should accept a stream URL as `%s` and pipe to STDOUT.
