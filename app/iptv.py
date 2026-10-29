@@ -328,10 +328,12 @@ class Data:
                     if any(re.search(p,g) for p in self.config.groups):
                         self.source_groups[url][i][1]=True
                 #select streams by group or filter
+                await asyncio.sleep(0)
                 streams_in=[ s for s in self.streams_cache[url] if \
                     self.source_groups[url].get(s['category_id'],[None,None])[1] \
                     or any(re.search(p,upper(s['name'])) for p in self.config.streams) ]
                 #remove and rename streams
+                await asyncio.sleep(0)
                 streams=[]
                 for s in streams_in:
                     n=upper(s['name'])
@@ -351,6 +353,7 @@ class Data:
                         s['stream_id']
                     ])
                 #replace channels without pattern if channel with pattern exists
+                await asyncio.sleep(0)
                 for p in self.config.replace:
                     replaced=set()
                     replaced.update(re.sub(p,'',s[0]) for s in streams if re.search(p,s[0]))
@@ -360,10 +363,12 @@ class Data:
                     for s in streams:
                         s[0]=re.sub(p,'',s[0])
                 #strip any remaining leading/trailing whitespace
+                await asyncio.sleep(0)
                 for s in streams:
                     s[0]=s[0].strip()
                 logging.debug('lineup: %s %s groups %s streams',url,len([g for g in self.source_groups[url].values() if g[1]]),len(streams))
                 # build lineup by merging streams across sources
+                await asyncio.sleep(0)
                 for s in streams:
                     #key will be name lower/snakecased.
                     k=s[0].lower().replace(' ','_') 
@@ -402,6 +407,7 @@ class Data:
                     if len(s[0]) < len(lineup[k]['GuideNumber']):
                         lineup[k].update(GuideNumber=s[0],GuideName=s[0])
             #if set, filter to channels with EPG IDs and at least MIN_SOURCES sources
+            await asyncio.sleep(0)
             if self.config.min_sources:
                 lineup=dict((k,l) for k,l in lineup.items() if l['GuideID'] and len(l['sources'])>=self.config.min_sources)
             # now order the final lineup
@@ -409,6 +415,7 @@ class Data:
             ordered_groups=dict(sorted((l['GuideCategory'],False) for l in lineup.values()))
             for o in self.config.order+['']: #empty string at end will output all remaining groups
                 for g in ordered_groups:
+                    await asyncio.sleep(0)
                     #if group matches pattern and has not been output
                     if not ordered_groups[g] and re.search(o,g):
                         #output group ahd mark as output
@@ -439,6 +446,8 @@ class Data:
                         c['id'] = c['id'].lower()
                         self.xmltv_cache['channels'][c['id']]=c
                         n+=1
+                        if not n%1000:
+                            await asyncio.sleep(0)
                 logging.debug('xmltv: fetched %s channels from %s'%(n,url))
                 n=0
                 xmlin.seek(0)
@@ -447,6 +456,8 @@ class Data:
                         p['channel'] = p['channel'].lower()
                         self.xmltv_cache['programs'].append(p)
                         n+=1
+                        if not n%1000:
+                            await asyncio.sleep(0)
                 logging.debug('xmltv: fetched %s programs from %s'%(n,url))
             except Exception as e:
                 logging.warning('xmltv: %s for %s %s %s',e,url,a.username,a.password)
@@ -463,15 +474,20 @@ class Data:
             if c:
                 nc+=1
                 writer.addChannel(c)
+                if not nc%1000:
+                    await asyncio.sleep(0)
         #add programs for lineup channels
         np=0
         for p in self.xmltv_cache['programs']:
             if p['channel'] in ids:
                 np+=1
                 writer.addProgramme(p)
+                if not np%1000:
+                    await asyncio.sleep(0)
         #generate XML
         xmlout=BytesIO()
         writer.write(xmlout)
+        asyncio.sleep(0)
         xmlout.seek(0)
         logging.info('xmltv: %s channels, %s programs',nc,np)
         return xmlout.read().decode()
