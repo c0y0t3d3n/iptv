@@ -352,7 +352,7 @@ Config.args.update( dict(
         tuner_count=(int,4),
         cmd=(str,'ffmpeg -hide_banner -loglevel error -user_agent tuner -i %s -c copy -c:a ac3 -copyts -f mpegts pipe:1'),
         direct=(int,0),
-        buffer=(int,1024*1024) #buffer size for streaming
+        buffer=(int,65536) #buffer size for streaming
 ))
 
 #this will be written to the config file if it does not exist
