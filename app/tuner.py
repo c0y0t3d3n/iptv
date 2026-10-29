@@ -346,6 +346,7 @@ class LogQ(deque):
 Config.args.update( dict(
         server_ip=(str,'localhost'),
         server_port=(int,5004),
+        verbose=(int,0),
         tuner_count=(int,4),
         cmd=(str,'ffmpeg -hide_banner -loglevel error -user_agent tuner -i %s -c copy -c:a ac3 -copyts -f mpegts pipe:1'),
         direct=(int,0),
@@ -413,7 +414,11 @@ def main(*args):
     app = web.Application() 
     app.add_routes(tuner.get_routes())
     # start server
-    web.run_app(app,host=config.server_ip, port=config.server_port)
+    web.run_app(app,
+                host=config.server_ip, 
+                port=config.server_port, 
+                access_log=logging.getLogger('aiohttp.access') if config.verbose else None
+                )
 
 if __name__ == '__main__':
     main(*sys.argv[1:])
