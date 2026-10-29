@@ -316,6 +316,7 @@ class Data:
         try:
             for url in self.groups_cache.keys():
                 for i,g in self.groups_cache[url].items():
+                    await asyncio.sleep(0)
                     for p in self.config.group_rename:
                         if '=' in p:
                             p,r=p.split('=',1)
@@ -328,14 +329,13 @@ class Data:
                     if any(re.search(p,g) for p in self.config.groups):
                         self.source_groups[url][i][1]=True
                 #select streams by group or filter
-                await asyncio.sleep(0)
                 streams_in=[ s for s in self.streams_cache[url] if \
                     self.source_groups[url].get(s['category_id'],[None,None])[1] \
                     or any(re.search(p,upper(s['name'])) for p in self.config.streams) ]
                 #remove and rename streams
-                await asyncio.sleep(0)
                 streams=[]
                 for s in streams_in:
+                    await asyncio.sleep(0)
                     n=upper(s['name'])
                     if  any(re.search(p,n) for p in self.config.streams_exclude):
                         continue
@@ -353,8 +353,8 @@ class Data:
                         s['stream_id']
                     ])
                 #replace channels without pattern if channel with pattern exists
-                await asyncio.sleep(0)
                 for p in self.config.replace:
+                    await asyncio.sleep(0)
                     replaced=set()
                     replaced.update(re.sub(p,'',s[0]) for s in streams if re.search(p,s[0]))
                     #remove replaced channels
@@ -363,13 +363,13 @@ class Data:
                     for s in streams:
                         s[0]=re.sub(p,'',s[0])
                 #strip any remaining leading/trailing whitespace
-                await asyncio.sleep(0)
                 for s in streams:
+                    await asyncio.sleep(0)
                     s[0]=s[0].strip()
                 logging.debug('lineup: %s %s groups %s streams',url,len([g for g in self.source_groups[url].values() if g[1]]),len(streams))
                 # build lineup by merging streams across sources
-                await asyncio.sleep(0)
                 for s in streams:
+                    await asyncio.sleep(0)
                     #key will be name lower/snakecased.
                     k=s[0].lower().replace(' ','_') 
                     #auto mapping will merge channels with different names if the epg ids match
@@ -407,7 +407,6 @@ class Data:
                     if len(s[0]) < len(lineup[k]['GuideNumber']):
                         lineup[k].update(GuideNumber=s[0],GuideName=s[0])
             #if set, filter to channels with EPG IDs and at least MIN_SOURCES sources
-            await asyncio.sleep(0)
             if self.config.min_sources:
                 lineup=dict((k,l) for k,l in lineup.items() if l['GuideID'] and len(l['sources'])>=self.config.min_sources)
             # now order the final lineup
