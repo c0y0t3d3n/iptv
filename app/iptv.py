@@ -425,10 +425,7 @@ class Data:
                         await asyncio.sleep(0)
             logging.info('lineup: %s groups, %s streams',len(ordered_groups),len(self.lineup))
         except Exception as e:
-            try:
-                logging.warning('lineup: %s, last pattern was %s',e,p)
-            except:
-                logging.warning('lineup: %s',e)
+            logging.execption(e)
         return self.lineup
 
     async def fetch_xmltv(self,selected_sources):

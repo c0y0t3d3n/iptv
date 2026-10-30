@@ -46,7 +46,7 @@ class Tuner:
                     args = self.config.cmd % url
                     logging.debug('stream: %s %s exec %s', request.remote, k, args)
                     try:
-                        proc = await asyncio.create_subprocess_exec(*args.split(), stdout=asyncio.subprocess.PIPE)
+                        proc = await asyncio.create_subprocess_exec(*args.split(), stdout=asyncio.subprocess.PIPE, limit=self.config.buffer)
                         logging.info('stream: %s %s pid %s started', request.remote, k, proc.pid)
                         self.procs[proc.pid]=(request.remote,k,args)
                     except Exception as e:
