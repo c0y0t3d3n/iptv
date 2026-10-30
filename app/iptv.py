@@ -316,6 +316,7 @@ class Data:
         lineup={}
         try:
             for url in self.groups_cache.keys():
+                self.source_groups[url]={}
                 for i,g in self.groups_cache[url].items():
                     for p in self.config.group_rename:
                         if '=' in p:
@@ -324,10 +325,7 @@ class Data:
                             r=''
                         g=re.sub(p,r,g)
                     #id:[renamed group, selected]
-                    self.source_groups.setdefault(url,dict())[i]=[g,False]
-                    #select groups by filters
-                    if any(re.search(p,g) for p in self.config.groups):
-                        self.source_groups[url][i][1]=True
+                    self.source_groups[url][i]=(g,any(re.search(p,g) for p in self.config.groups))
                     await asyncio.sleep(0)
                 #select streams by group or filter
                 streams_in=[ s for s in self.streams_cache[url] if \
