@@ -44,11 +44,9 @@ class Tuner:
                     logging.info('stream: %s %s from %s'%(request.remote, k, url))
                     # remux with ffmpeg
                     args = self.config.cmd % url
-                    logging.debug('stream: %s cmd %s', request.remote, args)
+                    logging.debug('stream: %s %s exec %s', request.remote, k, args)
                     try:
-                        proc = await asyncio.create_subprocess_exec(*args.split(), 
-                                                                    stdout=asyncio.subprocess.PIPE,
-                                                                    limit=self.config.buffer )
+                        proc = await asyncio.create_subprocess_exec(*args.split(), stdout=asyncio.subprocess.PIPE)
                         logging.info('stream: %s %s pid %s started', request.remote, k, proc.pid)
                         self.procs[proc.pid]=(request.remote,k,args)
                     except Exception as e:
@@ -62,16 +60,17 @@ class Tuner:
                             data = await proc.stdout.read(self.config.buffer)
                             if not data: # cmd exited, source dropped the stream
                                 break
+                            logging.debug('stream: %s %s pid %s proxied %s bytes', request.remote, k, proc.pid, len(data))
                             await response.write(data)
                         # cmd exited likely source dropped the stream
                         rc=await proc.wait()
-                        logging.warning('stream: %s %s pid %s exited (%s)',request.remote, k, rc)
+                        logging.warning('stream: %s %s pid %s exited (%s)',request.remote, k, proc.pid, rc)
                         if self.config.auto_pri:
                             # drop priority for this source on fail, will be reset on refresh
                             for sa in self.data.accounts[acct.source]:
                                 sa.priority+=1
                         else:
-                            self.data.last_refresh=0 #expire cache if 'best' account still fails
+                            self.data.last_refresh=0 #expire cache if not adjusting priority
                     except OSError: 
                         logging.debug('stream: %s %s pid %s disconnected',request.remote, k, proc.pid)
                     except Exception as e:
@@ -355,7 +354,7 @@ Config.args.update( dict(
         tuner_count=(int,4),
         cmd=(str,'ffmpeg -hide_banner -loglevel error -user_agent tuner -i %s -c copy -c:a ac3 -copyts -f mpegts pipe:1'),
         direct=(int,0),
-        buffer=(int,65536) #buffer size for streaming
+        buffer=(int,1024*1024) #buffer size for streaming
 ))
 
 #this will be written to the config file if it does not exist

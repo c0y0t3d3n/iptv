@@ -513,10 +513,10 @@ class Data:
                 lineup = await self.build_lineup()
             #get xmltv if requested
             if get_xmltv:
-                if not self.xmltv_cache:
-                   async with self.xmltv_lock: 
+                async with self.xmltv_lock:
+                    if not self.xmltv_cache:
                         await self.fetch_xmltv(await self.select_sources(check_free=False))
-                return await self.build_xmltv()
+                    return await self.build_xmltv()
             else:
                 return lineup
         except Exception as e:
