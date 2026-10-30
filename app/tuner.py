@@ -23,8 +23,8 @@ class Tuner:
     async def get_stream(self,request):
         #serve stream URL or stream data
         k=unquote(request.match_info['stream'])
+        logging.debug('stream: %s request %s'%(request.remote, k))
         if k in self.data.lineup:
-            logging.debug('%s stream %s'%(request.remote,k))
             # send the URL to plex
             try:
                 await self.data.refresh_accts()
@@ -32,17 +32,19 @@ class Tuner:
                 #get the best source/account for this channel
                 sources=await self.data.select_sources(list(l['sources'].keys()))
                 (source,acct)=sources[0]
-                #format the stream URL, return URL and account
+                #format the stream URL
                 url=self.config.format % (acct.info['server_info']['url'], 
                         acct.info['server_info']['port'], acct.username, acct.password, 
                         l['sources'][source])
                 if self.config.direct:
-                    logging.info('stream: %s %s redirected to %s', k, request.remote, url)
+                    #redirect client to stream
+                    logging.info('stream: %s %s redirected to %s', request.remote, k, url)
                     return web.Response(status=302,headers={'Location':url})
                 else:  
+                    logging.info('stream: %s %s from %s'%(request.remote, k, url))
                     # remux with ffmpeg
                     args = self.config.cmd % url
-                    logging.debug('stream: %s spawning %s', request.remote, args)
+                    logging.debug('stream: %s cmd %s', request.remote, args)
                     try:
                         proc = await asyncio.create_subprocess_exec(*args.split(), 
                                                                     stdout=asyncio.subprocess.PIPE,
@@ -62,7 +64,8 @@ class Tuner:
                                 break
                             await response.write(data)
                         # cmd exited likely source dropped the stream
-                        logging.warning('stream: %s %s pid %s failed',request.remote, k, proc.pid)
+                        rc=await proc.wait()
+                        logging.warning('stream: %s %s pid %s exited (%s)',request.remote, k, rc)
                         if self.config.auto_pri:
                             # drop priority for this source on fail, will be reset on refresh
                             for sa in self.data.accounts[acct.source]:
@@ -82,7 +85,7 @@ class Tuner:
                     del self.procs[proc.pid]
                     return response
             except Exception as e: #no source available for this stream
-                logging.debug('%s %s',k,e)
+                logging.debug('stream: %s %s',k,e)
                 self.data.last_refresh=0 #expire cache if nothing usable
                 return web.Response(status=503,text=k)
         else:
