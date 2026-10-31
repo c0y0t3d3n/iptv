@@ -74,7 +74,13 @@ class Config:
                 try:
                     with open(self.config_file) as f:
                         lines=f.readlines()
+                        in_block_commment=False
                         for l in lines:
+                            # ### starts and ends a block comment
+                            if l.startswith('###'):
+                                in_block_commment=not in_block_commment
+                            if in_block_commment:
+                                continue
                             l=l.split('#')[0]
                             if '=' in l:
                                 k,v=l.strip('\n').split('=',1)
@@ -112,12 +118,24 @@ class Config:
             # example: REPLACE=' LHD$' will rename 'ABC LHD' to 'ABC', removing any STREAMS named 'ABC', but only if 'ABC LHD' exists.
             self.replace=[p for p in upper(self.replace).split(',') if p]
             # ordering of the lineup. Groups matching each pattern will be output in the order of the patterns. Remaining groups will be at end
-            self.order=[p for p in upper(self.order).split(',') if p]
+            self.order=[p for p in upper(self.order).split(',') if p]+['']
             # parse overrides for epg sources
             self.map=dict(p.split('=') for p in upper(self.map).split(',') if p)
 
             # return config for info 
             return dict((e,getattr(self,e,None)) for e in self.args)
+
+    async def get_res(self,k):
+        res=[]
+        for p in getattr(self,k):
+            try:
+                p,s=p.split('=',1) if '=' in p else (p,'')
+                logging.debug('config: compiling %s=%s%s',k,p,'='+s if s else '')
+                res.append((re.compile(p),s))
+                await asyncio.sleep(0)
+            except Exception as e:
+                logging.warning('config: %s compiling %s=%s%s',e,k,p,'='+s if s else '')
+        return res
 
     async def get_config(self):
         async with self.lock:
@@ -133,7 +151,13 @@ class Config:
             try:
                 with open(self.config_file) as f:
                     lines=f.readlines()
+                    in_block_commment=False
                     for l in lines:
+                        # ### starts and ends a block comment
+                        if l.startswith('###'):
+                            in_block_commment=not in_block_commment
+                        if in_block_commment:
+                            continue
                         if l.startswith('http'):
                             try:
                                 l=l.strip().split()
@@ -141,9 +165,9 @@ class Config:
                                 pri=l[3] if len(l)>3 else 0
                                 accounts.setdefault(url,[]).append(Account(user,pw,pri))
                             except Exception as e:
-                                logging.debug('%s parsing %s',e,l)
+                                logging.debug('config: %s parsing %s',e,l)
             except Exception as e:
-                logging.error('%s reading config',e)
+                logging.error('config: %s reading config',e)
         return accounts
 
     async def write(self,text):    
@@ -160,9 +184,9 @@ class Config:
             try:
                 with open(self.config_file,'a') as f:
                     f.write(text+'\n')
-                    logging.info('added %s to %s',text,self.config_file)
+                    logging.info('config: added %s to %s',text,self.config_file)
             except Exception as e:
-                logging.error('%s writing config',e)
+                logging.error('config: %s writing config',e)
 
     async def add_account(self,text):
         text=text.strip()
@@ -179,7 +203,7 @@ class Config:
             filter_text+='='+rename_to
         if exclude:
             filter_text='!'+filter_text
-        await self.append(filter_type+'='+filter_text+'#'+comment)
+        await self.append(filter_type+'='+filter_text+'# '+comment)
 
 
 class Account:
@@ -314,35 +338,35 @@ class Data:
         ids={}  
         groups={}
         lineup={}
+        #get the compiled patterns. Each will be (Pattern,replace) even if replace is unused
+        re_group_rename=await self.config.get_res('group_rename')
+        re_groups=await self.config.get_res('groups')
+        re_streams=await self.config.get_res('streams')
+        re_streams_exclude=await self.config.get_res('streams_exclude')
+        re_rename=await self.config.get_res('rename')
+        re_replace=await self.config.get_res('replace')
+        re_order=await self.config.get_res('order')
         try:
             for url in self.groups_cache.keys():
                 self.source_groups[url]={}
                 for i,g in self.groups_cache[url].items():
-                    for p in self.config.group_rename:
-                        if '=' in p:
-                            p,r=p.split('=',1)
-                        else:
-                            r=''
-                        g=re.sub(p,r,g)
-                    #id:[renamed group, selected]
-                    self.source_groups[url][i]=(g,any(re.search(p,g) for p in self.config.groups))
+                    for p,r in re_group_rename:
+                        g=p.sub(r,g)
+                    #id:(renamed group, selected)
+                    self.source_groups[url][i]=(g,any(p.search(g) for p,r in re_groups))
                     await asyncio.sleep(0)
                 #select streams by group or filter
                 streams_in=[ s for s in self.streams_cache[url] if \
                     self.source_groups[url].get(s['category_id'],[None,None])[1] \
-                    or any(re.search(p,upper(s['name'])) for p in self.config.streams) ]
+                    or any(p.search(upper(s['name'])) for p,r in re_streams) ]
                 #remove and rename streams
                 streams=[]
                 for s in streams_in:
                     n=upper(s['name'])
-                    if  any(re.search(p,n) for p in self.config.streams_exclude):
+                    if  any(p.search(n) for p,r in re_streams_exclude):
                         continue
-                    for p in self.config.rename:
-                        if '=' in p:
-                            p,r=p.split('=',1)
-                        else:
-                            r=''
-                        n=re.sub(p,r,n)
+                    for p,r in re_rename:
+                        n=p.sub(r,n)
                     # each stream is name, EPG ID, group name, source stream ID,
                     streams.append([
                         n,
@@ -352,14 +376,14 @@ class Data:
                     ])
                     await asyncio.sleep(0)
                 #replace channels without pattern if channel with pattern exists
-                for p in self.config.replace:
+                for p,r in re_replace:
                     replaced=set()
-                    replaced.update(re.sub(p,'',s[0]) for s in streams if re.search(p,s[0]))
+                    replaced.update(p.sub('',s[0]) for s in streams if p.search(s[0]))
                     #remove replaced channels
                     streams=[s for s in streams if s[0] not in replaced]
                     #rename name+pattern to name to replace channel
                     for s in streams:
-                        s[0]=re.sub(p,'',s[0])
+                        s[0]=p.sub('',s[0])
                         await asyncio.sleep(0)
                 #strip any remaining leading/trailing whitespace
                 for s in streams:
@@ -370,13 +394,13 @@ class Data:
                 for s in streams:
                     #key will be name lower/snakecased.
                     k=s[0].lower().replace(' ','_') 
+                    #set EPG IDs if override
+                    if s[0] in self.config.map:
+                        s[1]=self.config.map[s[0]].lower()
                     #auto mapping will merge channels with different names if the epg ids match
                     if self.config.auto_map and k not in lineup and s[1] in ids:
                             logging.debug('lineup: %s mapped %s to %s',s[1],k,ids[s[1]])
                             k=ids[s[1]]
-                    #map EPG IDs to key
-                    if s[0] in self.config.map:
-                        s[1]=self.config.map[s[0]].lower()
                     if s[1]:
                         ids[s[1]]=k
                     #create channel and add this source
@@ -411,11 +435,11 @@ class Data:
             # now order the final lineup
             self.lineup={}
             ordered_groups=dict(sorted((l['GuideCategory'],False) for l in lineup.values()))
-            for o in self.config.order+['']: #empty string at end will output all remaining groups
+            for p,r in re_order: #empty string at end will output all remaining groups
                 for g in ordered_groups:
                     #if group matches pattern and has not been output
-                    if not ordered_groups[g] and re.search(o,g):
-                            #output group and mark as output
+                    if not ordered_groups[g] and p.search(g):
+                        #output group and mark as output
                         self.lineup.update((k,l) for k,l in lineup.items() if l['GuideCategory']==g)
                         ordered_groups[g]=True
                         logging.debug('lineup: ordering group %s',g)
@@ -423,7 +447,7 @@ class Data:
                         await asyncio.sleep(0)
             logging.info('lineup: %s groups, %s streams',len(ordered_groups),len(self.lineup))
         except Exception as e:
-            logging.execption(e)
+            logging.exception(e)
         return self.lineup
 
     async def fetch_xmltv(self,selected_sources):
