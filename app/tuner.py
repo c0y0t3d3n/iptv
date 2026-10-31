@@ -363,6 +363,7 @@ DEFAULT_CONFIG='''
 group_rename=^^USA? ?[\\|:] ?
 group_rename=^news.*weather$=news
 group_rename=^family.*kids$=kids
+group_rename=(basic|document).*=entertainment
 
 #default group selection
 groups=^(ENTERTAINMENT|KIDS|MOVIES|MUSIC|NEWS|SPORTS)$
@@ -371,13 +372,14 @@ groups=^(ENTERTAINMENT|KIDS|MOVIES|MUSIC|NEWS|SPORTS)$
 order=LOCAL,SPORTS,NEWS,ENTERTAINMENT,MUSIC,KIDS,MOVIES
 
 #exclude non US and west
-streams=!(CA|CAN|UK|GB|ES)[: ][: ]
+streams=!(CA|CAN|UK|GB|ES|LBW)[: ][-\\|: ]
 streams=! \\(?west\\)?
 
-#to include your local stations, insert names of cities or call signs of your stations
-streams=mycity,CALLSIGN
-#clean up local channel names, substitute your state and city
-rename=( - )?(ST).*(city) ?\\|?= #to space if embedded
+#to include your local stations, uncomment and replace with namesof city and call sign of your station, repeat for each
+#streams=MYCITY.*CALLSIGN
+
+#clean up local channel names, repeat for each 
+#rename=.*CALLSIGN.*=CALLSIGN
 
 #strip common prefixes/suffixes
 rename=^USA? ?[\\|: ], \\(?east\\)?, HD$
