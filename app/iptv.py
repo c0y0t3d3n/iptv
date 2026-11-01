@@ -253,7 +253,8 @@ class Data:
         params={'username':a.username,'password':a.password}
         if action:
             params.update(action=action)
-        async with ClientSession(timeout=ClientTimeout(connect=self.config.timeout if self.config.timeout else None)) as s:
+        timeout=ClientTimeout(sock_connect=self.config.timeout,sock_read=self.config.timeout) if self.config.timeout else None
+        async with ClientSession(timeout=timeout) as s:
             async with s.get(url+'/'+path,params=params,headers=headers) as r:
                 return await r.text() if raw else await r.json()
 
@@ -482,7 +483,6 @@ class Data:
     async def build_xmltv(self):
         async with self.lineup_lock:
             ids=set(l['GuideID'] for l in self.lineup.values()) #EPG ID of channels in lineup
-        chs=[]
         writer=xmltv.Writer(**dict((k.replace('-','_'),v) for k,v in self.xmltv_cache['data'].items()))
         #filter to lineup channels
         nc=np=0
@@ -494,7 +494,7 @@ class Data:
                 await asyncio.sleep(0)
         #add programs for lineup channels
         np=0
-        for p in self.xmltv_cache['programs']:
+        for p in self.xmltv_cache['programs'].values():
             if p['channel'] in ids:
                 np+=1
                 writer.addProgramme(p)
