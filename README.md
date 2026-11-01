@@ -39,7 +39,7 @@ Example: `REPLACE= UHD$` will turn 'ABC UHD' into 'ABC', removing any streams na
 ## Automapping
 Channels from each source will be merged into a single lineup by combining channels with the same name or same EPG ID. Matching names take priority over EPG IDs. To disable matching by EPG ID, set `AUTO_MAP=0`
 
-The characters before each stream link in the lineup represent the source(s) providing that channel, and the associated EPG ID follows the channel name. To set or override the EPG ID for a channel, specify `MAP=channel=epgid`.
+The characters before each stream link in the lineup represent the source(s) providing that channel, and the associated EPG ID follows the channel name. To override the EPG ID for a channel, specify `MAP=NAME=epgid`. This is a bidirectional mapping: all channels with `NAME` will be mapped to `epgid` and all channels with `epgid` will be renamed to `NAME`.
 
 To filter the lineup to only channels with EPG data, set `MIN_SOURCES=<n>` where `<n>` is the minimum number of EPG sources a channel must have to be in the lineup.
 
