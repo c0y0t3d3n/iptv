@@ -347,6 +347,7 @@ class Data:
         re_rename=await self.config.get_res('rename')
         re_replace=await self.config.get_res('replace')
         re_order=await self.config.get_res('order')
+        id_map=dict((v.lower(),k) for k,v in self.config.map.items()) #map of epg id back to name
         try:
             for url in self.groups_cache.keys():
                 self.source_groups[url]={}
@@ -398,9 +399,10 @@ class Data:
                     #set EPG IDs if override
                     if s[0] in self.config.map:
                         s[1]=self.config.map[s[0]].lower()
+                        logging.debug('lineup: config maps %s to %s',s[0],s[1])
                     #auto mapping will merge channels with different names if the epg ids match
                     if self.config.auto_map and k not in lineup and s[1] in ids:
-                            logging.debug('lineup: %s mapped %s to %s',s[1],k,ids[s[1]])
+                            logging.debug('lineup: %s maps %s to %s',s[1],k,ids[s[1]])
                             k=ids[s[1]]
                     if s[1]:
                         ids[s[1]]=k
@@ -426,8 +428,9 @@ class Data:
                     #ensure a guide ID if possible
                     if not lineup[k]['GuideID']:
                         lineup[k]['GuideID']=s[1]
-                    #deal with source order changing by always keeping shorter name
-                    if len(s[0]) < len(lineup[k]['GuideNumber']):
+                    #deal with source order changing by always keeping shorter name unless manual mapping
+                    if lineup[k]['GuideID'] not in id_map and len(s[0]) < len(lineup[k]['GuideNumber']):
+                        logging.debug('lineup: autorename %s to %s',lineup[k]['GuideNumber'],s[0])
                         lineup[k].update(GuideNumber=s[0],GuideName=s[0])
                     await asyncio.sleep(0)
             #if set, filter to channels with EPG IDs and at least MIN_SOURCES sources
