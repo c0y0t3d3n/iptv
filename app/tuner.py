@@ -174,6 +174,11 @@ class Tuner:
         <td><input type=checkbox title='match at start' name=replace_start></td>
         <td><input type=text title='if channel matching pattern exists, replace channels matching name without pattern' size=40 name=replace></td>
         <td><input type=checkbox title='match at end' name=replace_end></td></tr>
+        <tr><th>map:</th>
+        <td></td>
+        <td><input type=text title='name to map to guide ID' size=40 name=map></td>
+        <td></td>
+        <td>id:</td><td><input type=text title='guide ID to map to name' name=map_to></td></tr>
         <tr><th>comment:</th>
         <td></td>
         <td><input type=text size=40 name=comment></td>
@@ -318,7 +323,8 @@ class Tuner:
             'group_rename':self.add_filter,
             'streams':self.add_filter,
             'rename':self.add_filter,
-            'replace':self.add_filter
+            'replace':self.add_filter,
+            'map':self.add_filter
         }.get(k)
 
     #return path routing table
@@ -375,11 +381,11 @@ order=LOCAL,SPORTS,NEWS,ENTERTAINMENT,MUSIC,KIDS,MOVIES
 streams=!(CA|CAN|UK|GB|ES|LBW)[: ][-\\|: ]
 streams=! \\(?west\\)?
 
-#to include your local stations, uncomment and replace with namesof city and call sign of your station, repeat for each
-#streams=MYCITY.*CALLSIGN
+#to include your local stations, uncomment and replace with names of city and callsigns of your station, repeat for each city
+#streams=MYCITY.*(CALLSIGN|CALLSIGN)
 
-#clean up local channel names, repeat for each 
-#rename=.*CALLSIGN.*=CALLSIGN
+#clean up local channel names 
+#rename=.*(CALLSIGN|CALLSIGN).*=\\1
 
 #strip common prefixes/suffixes
 rename=^USA? ?[\\|: ], \\(?east\\)?, HD$

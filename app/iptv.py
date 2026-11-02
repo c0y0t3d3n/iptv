@@ -74,13 +74,7 @@ class Config:
                 try:
                     with open(self.config_file) as f:
                         lines=f.readlines()
-                        in_block_commment=False
                         for l in lines:
-                            # ### starts and ends a block comment
-                            if l.startswith('###'):
-                                in_block_commment=not in_block_commment
-                            if in_block_commment:
-                                continue
                             l=l.split('#')[0]
                             if '=' in l:
                                 k,v=l.strip('\n').split('=',1)
@@ -153,9 +147,11 @@ class Config:
                     lines=f.readlines()
                     in_block_commment=False
                     for l in lines:
-                        # ### starts and ends a block comment
-                        if l.startswith('###'):
-                            in_block_commment=not in_block_commment
+                        # start and end a block comment
+                        if l.startswith('/*'):
+                            in_block_commment=True
+                        elif l.startswith('*/'):
+                            in_block_commment=False
                         if in_block_commment:
                             continue
                         if l.startswith('http'):
@@ -274,7 +270,7 @@ class Data:
         except Exception as e:
             # if account is not valid info will not parse so return 0/0 slots available and raw info
             logging.warning('refresh: %s checking %s %s %s %s',e,url,a.username,a.password,a.info)
-            return Account(a.username,a.password,a.priority,None,None,str(info),None,info)
+            return Account(a.username,a.password,a.priority,None,None,str(info) if info else str(e),None,info)
             
     async def refresh_accts(self,accounts=None,force_refresh=False):
         #refresh status of accounts from source if not cached
@@ -397,15 +393,18 @@ class Data:
                 if streams: #this source is good
                     nsources+=1
                 for s in streams:
+                    #set names and EPG IDs if mapped
+                    if s[0] in self.config.map:
+                        logging.debug('lineup: map %s %s -> %s',s[0],s[1],self.config.map[s[0]].lower())
+                        s[1]=self.config.map[s[0]].lower()
+                    elif s[1] in id_map:
+                        logging.debug('lineup: map %s -> %s %s',s[0],id_map[s[1]],s[1])
+                        s[0]=id_map[s[1]]
                     #key will be name lower/snakecased.
                     k=s[0].lower().replace(' ','_') 
-                    #set EPG IDs if override
-                    if s[0] in self.config.map:
-                        s[1]=self.config.map[s[0]].lower()
-                        logging.debug('lineup: config maps %s to %s',s[0],s[1])
                     #auto mapping will merge channels with different names if the epg ids match
                     if self.config.auto_map and k not in lineup and s[1] in ids:
-                            logging.debug('lineup: %s maps %s to %s',s[1],k,ids[s[1]])
+                            logging.debug('lineup: automap %s %s -> %s',s[1],k,ids[s[1]])
                             k=ids[s[1]]
                     if s[1]:
                         ids[s[1]]=k
@@ -433,7 +432,7 @@ class Data:
                         lineup[k]['GuideID']=s[1]
                     #deal with source order changing by always keeping shorter name unless manual mapping
                     if lineup[k]['GuideID'] not in id_map and len(s[0]) < len(lineup[k]['GuideNumber']):
-                        logging.debug('lineup: autorename %s to %s',lineup[k]['GuideNumber'],s[0])
+                        logging.debug('lineup: autorename %s -> %s',lineup[k]['GuideNumber'],s[0])
                         lineup[k].update(GuideNumber=s[0],GuideName=s[0])
                     await asyncio.sleep(0)
             #if set, filter to channels with EPG IDs and at least minimum sources. 
