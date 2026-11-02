@@ -339,6 +339,7 @@ class Data:
         ids={}  
         groups={}
         lineup={}
+        nsources=0
         #get the compiled patterns. Each will be (Pattern,replace) even if replace is unused
         re_group_rename=await self.config.get_res('group_rename')
         re_groups=await self.config.get_res('groups')
@@ -393,6 +394,8 @@ class Data:
                     await asyncio.sleep(0)
                 logging.debug('lineup: %s %s groups %s streams',url,len([g for g in self.source_groups[url].values() if g[1]]),len(streams))
                 # build lineup by merging streams across sources
+                if streams: #this source is good
+                    nsources+=1
                 for s in streams:
                     #key will be name lower/snakecased.
                     k=s[0].lower().replace(' ','_') 
@@ -433,9 +436,11 @@ class Data:
                         logging.debug('lineup: autorename %s to %s',lineup[k]['GuideNumber'],s[0])
                         lineup[k].update(GuideNumber=s[0],GuideName=s[0])
                     await asyncio.sleep(0)
-            #if set, filter to channels with EPG IDs and at least MIN_SOURCES sources
+            #if set, filter to channels with EPG IDs and at least minimum sources. 
             if self.config.min_sources:
-                lineup=dict((k,l) for k,l in lineup.items() if l['GuideID'] and len(l['sources'])>=self.config.min_sources)
+                #ensure the minimum is not > num sources in case a source is down 
+                min_sources=min(nsources,self.config.min_sources)
+                lineup=dict((k,l) for k,l in lineup.items() if l['GuideID'] and len(l['sources'])>=min_sources)
             # now order the final lineup
             self.lineup={}
             ordered_groups=dict(sorted((l['GuideCategory'],False) for l in lineup.values()))
