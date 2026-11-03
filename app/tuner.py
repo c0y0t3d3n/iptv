@@ -457,6 +457,7 @@ class Tuner:
             web.post('/config',self.handle_post),
             web.post('/sources',self.handle_post),
             web.post('/lineup',self.handle_post),
+            web.post('/log',self.handle_post),
             web.post('/',self.handle_post),
          ]
 

@@ -554,7 +554,7 @@ class Data:
                 await asyncio.sleep(0)
         #add programs for lineup channels
         np=0
-        for p in self.xmltv_cache['programs'].values():
+        for p in self.xmltv_cache['programs']:
             if p['channel'] in ids:
                 np+=1
                 writer.addProgramme(p)
@@ -599,7 +599,8 @@ class Data:
             else:
                 return lineup
         except Exception as e:
-            logging.debug(e)
+            if self.config.loglevel<20:
+                logging.exception(e)
             logging.warning('rescan: no usable accounts')
 
 
