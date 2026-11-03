@@ -133,7 +133,7 @@ class Config:
         async with self.lock:
             self.__config=json.loads(text)
             self.__config['sources']=self.sources.copy()
-            logging.info('config: saving')
+            logging.info('config: saving to %s',self.config_file)
             self.write()
 
     async def update(self,remove=False,**kwargs):
@@ -227,8 +227,9 @@ class Config:
         try:
             with open(self.config_file,'w') as f:
                 json.dump(self.__config,f,indent=4)
+                logging.debug('config: wrote %s',self.config_file)
         except Exception as e:
-            logging.error('%s writing %s',e,self.config_file)
+            logging.error('config: %s writing %s',e,self.config_file)
                     
 
 class Account:
