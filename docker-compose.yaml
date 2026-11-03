@@ -7,6 +7,7 @@ services:
         volumes:
           - ./config:/config
         working_dir: /app
-        command: python3 -m tuner /config/tuner.cfg
+        command: python3 -m tuner /config/config.json
         environment:
-          SERVER_IP: YOUR_IP_HERE
+          SERVER_IP: 10.0.0.10
+

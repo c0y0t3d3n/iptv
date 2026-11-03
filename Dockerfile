@@ -6,4 +6,5 @@ WORKDIR /app
 COPY app/* /app
 RUN mkdir /config
 EXPOSE 5004
-CMD ["python", "-m", "tuner", "/config/tuner.cfg"]
+CMD ["python3", "-m", "tuner", "/config/config.json"]
+

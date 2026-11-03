@@ -9,60 +9,58 @@
 # Getting started
 A `docker-compose.yaml` and `Dockerfile` to build/run a tuner container is included. Make sure you set `SERVER_IP` in `docker-compose.yaml`. A default config will be created if it does not exist.
 
-Visit `http://SERVER_IP:SERVER_PORT/` for status, lineup with stream links, logs, and to edit the config. Below the accounts status is an import field. Paste xtream codes as `URL USERNAME PASSWORD` or a URL and hit 'add account' to import it.
+Visit `http://SERVER_IP:SERVER_PORT/` for the web UI. On the sources page is an import field. Paste xtream codes as `URL USERNAME PASSWORD` or a URL and hit 'Add account' to import it.
 
 To add the tuner to Plex you need to manually enter the `SERVER_IP:SERVER_PORT` and it should appear. When you rescan channels in Plex it refreshes accounts and fetches lineups. Once you have the group and channel name filters set properly Plex should be able to map most of them to one of your local cable/satellite provider lineups. Any manual mappings you do should stick even if you change IPTV providers, as long as you adjust the filters.
 
-There is a list of groups provided by each source and a basic filter builder at the bottom of the lineup page. Choose a group to add from the dropdown or enter a pattern to match. Checkboxes select only matching at start or end of name; select both for exact match. You can also enter patterns to include or exclude streams by name, rename streams, and replace duplicates.
-
 If you are using Jellyfin or another IPTV player, use the M3U and XMLTV links on the status page. XMLTV is fetched from all sources and filtered to only channels in the lineup.
 
-# Configuration
-Keys are case-insensitive. Repeated keys and comma-seperated values will create a list of values for the key. All match patterns and replace strings are by default uppercased. This generally makes filtering and merging easier but limits what regexes you can use. Set `UPPER=0` in config to disable uppercasing.
+# Building the lineup
+There is a list of groups provided by each source and a basic filter builder at the bottom of the lineup page. Choose a group from the dropdown or enter a regex pattern and hit Add.
 
-## Filtering
-Filters are applied in the following order:
+All match patterns and replace strings are by default uppercased. This generally makes filtering and merging easier but limits what regexes you can use. Set `UPPER` to 0 in config to disable uppercasing.
 
-`GROUP_RENAME=` regex patterns to strip or replace in group names. `pattern=string` will replace pattern with string. This is applied before group selection.
+## Filters
 
-`GROUPS=` regex patterns of groups to match. All streams in a group will be selected.
+`group_rename:` regex patterns to strip or replace in group names. `pattern=string` will replace pattern with string. This is applied before group selection.
+
+`groups:` regex patterns of groups to match. All streams in a group will be selected. A dropdown list of all groups is available.
  
-`STREAMS=` regex patterns of streams to add or exclude if match. `!pattern` will exclude if match.
+`streams:` regex patterns of streams to add if match.\
+`streams_exclude:` will remove streams if match.
 
-`RENAME=` regex patterns to strip or replace in stream names. `pattern=string` will replace pattern with string. This is applied after stream selection.
+`map:` To override the EPG ID for a channel, specify `NAME=epg_id`. This is a bidirectional mapping: all channels with `NAME` will be mapped to `epg_id` and all channels with `epgid` will be renamed to `NAME`.
 
-`REPLACE=` replace any streams with the same name if a stream matching name+`pattern` exists.\
-Example: `REPLACE= UHD$` will turn 'ABC UHD' into 'ABC', removing any streams named 'ABC', but only if 'ABC UHD' exists. `REPLACE=^FHD: ` will do the same for 'FHD: ' at the start of the name.
+`rename:` regex patterns to strip or replace in stream names. `pattern=string` will replace pattern with string. This is applied after stream selection.
 
-`ORDER=` order of groups in the lineup. Groups matching the first pattern will be followed by groups matching the next and so on. Groups that do not match any pattern will be placed last.
+`replace:` replace any streams with the same name if a stream matching name+`pattern` exists.\
+Example: `UHD$` will turn 'ABC UHD' into 'ABC', removing any streams named 'ABC', but only if 'ABC UHD' exists. `^FHD: ` will do the same for 'FHD: ' at the start of the name.
+
+`order:` order the groups in the lineup. Groups matching the first pattern will be followed by groups matching the next and so on. Groups that do not match any pattern will be placed last.
 
 ## Automapping
 Channels from each source will be merged into a single lineup by combining channels with the same name or same EPG ID. Matching names take priority over EPG IDs. To disable matching by EPG ID, set `AUTO_MAP=0`
 
-The characters before each stream link in the lineup represent the source(s) providing that channel, and the associated EPG ID follows the channel name. To override the EPG ID for a channel, specify `MAP=NAME=epgid`. This is a bidirectional mapping: all channels with `NAME` will be mapped to `epgid` and all channels with `epgid` will be renamed to `NAME`.
+The characters before each stream link in the lineup represent the source(s) providing that channel, and the associated EPG ID follows the channel name. 
 
-To filter the lineup to only channels with EPG data, set `MIN_SOURCES=<n>` where `<n>` is the minimum number of EPG sources a channel must have to be in the lineup.
+To filter the lineup to only channels with EPG data, set `MIN_SOURCES` to the minimum number of EPG sources a channel must have to be in the lineup.
 
-## Caching
+# Caching
 The tuner can cache accounts, lineups, and xmltv data to reduce how often it has to hit the API endpoints of the sources. A refresh will occur when the cache expires, when the Rescan button is pressed, or Plex requests a channel scan. XMLTV cache will be cleared when lineups are refreshed, but XMLTV is not fetched from the source until requested by the client. 
 
-Account caching is disabled by default, but should be enabled if you have multiple accounts per source to avoid potentially being banned. To enable caching, set `CACHE=<seconds>` where `<seconds>` is how long to cache account data.
+Account caching is disabled by default, but should be enabled if you have multiple accounts per source to avoid potentially being banned. To enable caching, set `CACHE` to a nonzero number of seconds 
 
-Lineups and XMLTV are by default cached for 24 hours (86400 seconds). To change this set `LINEUP_CACHE=<seconds>`. 0 disables lineup and XMLTV caching.
+Lineups and XMLTV are by default cached for 24 hours (86400 seconds). To change this set `LINEUP_CACHE`. 0 disables lineup and XMLTV caching.
 
-## Accounts
-Put xtream codes in the config as:
+# Source selection
+The priority for each source defaults to 0. Lower number is higher priority and will be preferred unless all accounts for that source are full. If a stream failure occurs and account caching is enabled the failing source will be deprioritized until refresh. To disable this behavior set `AUTO_PRI` to 0
 
-`URL USER PASS PRI`
-
-PRI is optional and defaults to 0. Lower number is higher priority and will be preferred unless full. If a stream failure occurs and account caching is enabled the failing source will be deprioritized until refresh. To disable this behavior set `AUTO_PRI=0`
-
-If you have a large number of accounts for a source, you may not want to probe all of them on every rescan. Set `CHECK=<n>` to randomly select at most `<n>` accounts per source.
+If you have a large number of accounts for a source, you may not want to probe all of them on every rescan. Set `CHECK` to a nonzero number randomly select at most this many accounts per source.
 
 # Command line and options
 `app/tuner.py config_file`
 
-Options can set in config or environment
+Options can set on the config page or environment. A JSON editor is provided at the bottom.
 
 `SERVER_IP` and `SERVER_PORT` to set listening IP and port. Defaults to localhost:5004\
 `DIRECT=1` will bypass ffmpeg remuxing and redirect clients to the stream URL.\
