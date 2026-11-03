@@ -6,6 +6,7 @@ from datetime import datetime
 import logging
 import re
 import random
+import json
 from urllib.parse import quote, urlsplit
 from io import StringIO, BytesIO
 import xmltv
@@ -22,185 +23,213 @@ def upper(s):
 def parse_url(text):
     #just a url user pass line
     if ' ' in text:
-        info=text
+        info=text.split()[:3]
     else:
         #probably a http://host:port/get.php?username=...&password=...&... URL
         try:
-            parts=urlsplit(text)
+            parts=urlsplit(text.strip())
             url=parts.scheme+'://'+parts.netloc
             params=dict(p.split('=') for p in parts.query.split('&'))
-            info='%s %s %s'%(url,params['username'],params['password'])
+            info=url,params['username'],params['password']
         except Exception as e:
             logging.warning('%s parsing %s',e,text)      
             info=None
     return info  
 
 class Config:
+    '''store for config'''
     #variables we accept and types to cast to
     args=dict(
         loglevel=(int,logging.INFO),
         logdepth=(int,100),
-        upper=(int,1),
+        upper=(bool,True),
         timeout=(int,0),
         delay=(int,0),
         check=(int,0),
         cache=(int,0),
         lineup_cache=(int,86400),
         min_sources=(int,0),
-        auto_map=(int,1),
-        auto_pri=(int,1),
-        groups=(str,''),
-        rename=(str,''),
-        group_rename=(str,''),
-        streams=(str,''),
-        streams_exclude=(str,''),
-        replace=(str,''),
-        order=(str,''),
-        map=(str,''),
+        auto_map=(bool,True),
+        auto_pri=(bool,True),
+        group_rename=(list,[]),
+        groups=(list,[]),
+        streams=(list,[]),
+        streams_exclude=(list,[]),
+        map=(list,[]),
+        rename=(list,[]),
+        replace=(list,[]),
+        order=(list,[]),
         user_agent=(str,''),
         format=(str,'http://%s:%s/%s/%s/%s'),
+        sources=(dict,{})
     )
+    '''
+    sources will be { url : 
+                    {
+                        disabled: bool,
+                        priority: int,
+                        accounts: 
+                            [
+                                {   'username': username,
+                                    'password': password,
+                                    'priority': priority
+                                }, ...
+                            ]
+                    }
+                } 
+    '''
 
     def __init__(self,config_file=None):
         self.config_file=config_file
         self.lock=asyncio.Lock()
+        self.__config={}
 
     async def reload(self):
         '''read, build, and return config'''
         async with self.lock:
-            config={}
+            self.config={}
             #config from k=v in file
             if self.config_file:
                 try:
                     with open(self.config_file) as f:
-                        lines=f.readlines()
-                        for l in lines:
-                            l=l.split('#')[0]
-                            if '=' in l:
-                                k,v=l.strip('\n').split('=',1)
-                                k=k.lower()
-                                if k in config:
-                                    config[k]=config[k]+','+v
-                                elif k in self.args:
-                                    config[k]=v
+                        self.__config=json.load(f)
                 except Exception as e:
-                    logging.error('%s reading %s',e,self.config)
+                    logging.error('%s reading %s',e,self.config_file)
             #build config from file and args
             for k,(t,d) in self.args.items():
                 try:
                     #priorirty is env var > config > default
-                    setattr(self,k,t(os.getenv(k.upper(),config.get(k,d))))
+                    setattr(self,k,t(os.getenv(k.upper(),self.__config.get(k,d))))
                 except Exception as e:
                     logging.warning('config %s: %s',k,e)
 
-            #set global uppercasing
+            #set global uppercasing and handle uppercasing of list values
             global UPPER
             UPPER=self.upper
+            for k,(t,d) in self.args.items():
+                if t is list:
+                    setattr(self,k,[upper(v) for v in getattr(self,k)])
 
-            #parse filter args
-            # channel group regexes, !pattern to exclude
-            self.groups=[p for p in upper(self.groups).split(',') if p]
-            # channel name regexs to include or exclude if !pattern regardless of group
-            self.streams=upper(self.streams).split(',')
-            self.streams_exclude=[p[1:] for p in self.streams if p.startswith('!')]
-            self.streams=[p for p in self.streams if p and not p.startswith('!')]
-            # regex patterns to strip or replace in channel names. ^startwith, endswith$, or anywhere if no modifier
-            # pattern=string will replace pattern with string
-            self.rename=[p for p in upper(self.rename).split(',') if p]
-            self.group_rename=[p for p in upper(self.group_rename).split(',') if p]
-            # replace any channels with base name if a channel matching regex exists 
-            # example: REPLACE=' LHD$' will rename 'ABC LHD' to 'ABC', removing any STREAMS named 'ABC', but only if 'ABC LHD' exists.
-            self.replace=[p for p in upper(self.replace).split(',') if p]
-            # ordering of the lineup. Groups matching each pattern will be output in the order of the patterns. Remaining groups will be at end
-            self.order=[p for p in upper(self.order).split(',') if p]+['']
-            # parse overrides for epg sources
-            self.map=dict(p.split('=') for p in upper(self.map).split(',') if p)
-
-            # return config for info 
-            return dict((e,getattr(self,e,None)) for e in self.args)
-
-    async def get_res(self,k):
-        res=[]
-        for p in getattr(self,k):
-            try:
-                p,s=p.split('=',1) if '=' in p else (p,'')
-                logging.debug('config: compiling %s=%s%s',k,p,'='+s if s else '')
-                res.append((re.compile(p),s))
-                await asyncio.sleep(0)
-            except Exception as e:
-                logging.warning('config: %s compiling %s=%s%s',e,k,p,'='+s if s else '')
-        return res
-
-    async def get_config(self):
+            #clean up sources with no accounts
+            for url in list(self.sources.keys()):
+                if not self.sources[url].get('accounts',[]):
+                    del self.sources[url]
+            
+    async def get_config(self,sources=False,defaults=True):
+        #get the built config
         async with self.lock:
-            try:
-                with open(self.config_file) as f:
-                    return f.read(-1)
-            except Exception as e:
-                return str(e)
+            return dict(
+                (e,getattr(self,e,None)) for e in self.args \
+                if (sources or e!='sources') and (defaults or e in self.__config)
+            )
+
+    async def get_config_json(self,**kwargs):
+        return json.dumps(
+            await self.get_config(**kwargs),
+            indent=4
+        )
+
+    async def save(self,text):
+        async with self.lock:
+            self.__config=json.loads(text)
+            self.__config['sources']=self.sources.copy()
+            logging.info('config: saving')
+            self.write()
+
+    async def update(self,remove=False,**kwargs):
+        async with self.lock:
+            for k,v in kwargs.items():
+                #update value or add/remove from list in the config, write json
+                t=self.args.get(k,[None])[0] #get type from args
+                if t is not dict: #don't let this mess with sources dict
+                    if t is list:
+                        if remove:
+                            self.__config.setdefault(k,[]).remove(v)
+                            logging.info('config: removed %s from %s',v,k)
+                        else:
+                            self.__config.setdefault(k,[]).append(v)
+                            logging.info('config: added %s to %s',v,k)
+                    elif t:
+                        if v is None:
+                            if k in self.__config:
+                                del self.__config[k]
+                                logging.info('config: deleted %s',k)
+                        else:
+                            self.__config[k]=t(v)
+                            logging.info('config: updated %s=%s',k,v)
+            self.write()
 
     async def get_accounts(self):
+        #return {url:account objects} for enabled sources
         async with self.lock:
             accounts={}
-            try:
-                with open(self.config_file) as f:
-                    lines=f.readlines()
-                    in_block_commment=False
-                    for l in lines:
-                        # start and end a block comment
-                        if l.startswith('/*'):
-                            in_block_commment=True
-                        elif l.startswith('*/'):
-                            in_block_commment=False
-                        if in_block_commment:
-                            continue
-                        if l.startswith('http'):
-                            try:
-                                l=l.strip().split()
-                                url,user,pw=l[:3]
-                                pri=l[3] if len(l)>3 else 0
-                                accounts.setdefault(url,[]).append(Account(user,pw,pri))
-                            except Exception as e:
-                                logging.debug('config: %s parsing %s',e,l)
-            except Exception as e:
-                logging.error('config: %s reading config',e)
+            for url,source in self.sources.items():
+                if source.get('disabled'):
+                    logging.debug('source %s is disabled',url)
+                    continue
+                for account in source.get('accounts',[]):
+                    try:
+                        accounts.setdefault(url,[]).append(
+                            Account(username=account['username'],
+                                    password=account['password'],
+                                    priority=source.get('priority',0))
+                        )
+                    except Exception as e:
+                        logging.debug('config: %s parsing %s',e,account)
         return accounts
 
-    async def write(self,text):    
-        async with self.lock:    
-            try:
-                with open(self.config_file,'w') as f:
-                    f.write(text)
-                logging.info('wrote %s',self.config_file)
-            except Exception as e:
-                logging.error('%s writing %s',e,self.config_file)
-
-    async def append(self,text):
+    async def manage_source(self,source=None,disabled=None,priority=None):
+        # set the disbled flag or priority of a source
         async with self.lock:
-            try:
-                with open(self.config_file,'a') as f:
-                    f.write(text+'\n')
-                    logging.info('config: added %s to %s',text,self.config_file)
-            except Exception as e:
-                logging.error('config: %s writing config',e)
+            s=self.sources[source]
+            if disabled is not None:
+                s['disabled']=bool(int(disabled))
+            if priority is not None:
+                s['priority']=int(priority)
+            logging.info('source %s set to disabled=%s priority=%s',source,s['disabled'],s['priority'])
+            self.__config['sources']=self.sources.copy()
+            self.write()
 
     async def add_account(self,text):
         text=text.strip()
         info=parse_url(text)
         if info:
-            await self.append(info)
+            async with self.lock:
+                url,username,password=info
+                self.sources.setdefault(url,{'priority':0,'disabled':False,'accounts':[]})['accounts'].append(
+                    {
+                        'username':username,
+                        'password':password
+                    }
+                )
+                logging.info('config: added account for source %s username %s password %s',url,username,password)
+                self.__config['sources']=self.sources.copy()
+                self.write()
 
-    async def add_filter(self,filter_type,filter_text,start=False,end=False,exclude=False,rename_to=None,comment=''):
-        if start:
-            filter_text='^'+filter_text
-        if end:
-            filter_text+='$'
-        if rename_to:
-            filter_text+='='+rename_to
-        if exclude:
-            filter_text='!'+filter_text
-        await self.append(filter_type+'='+filter_text+'# '+comment)
+    async def remove_account(self,remove=None,username=None,password=None):
+        try:
+            async with self.lock:
+                self.sources[remove]['accounts'].remove(
+                    {
+                        'username':username,
+                        'password':password
+                    }
+                )
+                logging.info('config: removed account for source %s username %s password %s',remove,username,password)
+                self.__config['sources']=self.sources.copy()
+                await self.write()
+        except:
+            logging.warning('config: not found removing account for source %s username %s password %s',remove,username,password)
 
+    def write(self):
+        # write the saved config to JSON
+        # call reload() after writing to read and apply the changes
+        try:
+            with open(self.config_file,'w') as f:
+                json.dump(self.__config,f,indent=4)
+        except Exception as e:
+            logging.error('%s writing %s',e,self.config_file)
+                    
 
 class Account:
     '''struct for xtream codes account and status'''
@@ -222,10 +251,20 @@ class Account:
         return self.max_conns-self.active_conns
 
     def data(self):
-        return self.username,self.password,self.priority,self.active_conns,self.max_conns,self.status,self.expires
+        return dict(
+            username=self.username,
+            password=self.password,
+            priority=self.priority,
+            active_conns=self.active_conns,
+            max_conns=self.max_conns,
+            status=self.status,
+            expires=str(self.expires),
+            info=self.info,
+            source=self.source
+        )
 
     def __repr__(self):
-        return str(self.data())
+        return str(list(self.data().values()))
 
 
 class Data:
@@ -329,6 +368,18 @@ class Data:
                 logging.warning('fetch: %s for %s %s %s',e,url,a.username,a.password)
                 continue
 
+    async def compile_regex(self,k):
+        crex=[]
+        for p in getattr(self.config,k):
+            try:
+                p,s=p.split('=',1) if '=' in p else (p,'')
+                logging.debug('config: compiling %s=%s%s',k,p,'='+s if s else '')
+                crex.append((re.compile(p),s))
+            except Exception as e:
+                logging.warning('config: %s compiling %s=%s%s',e,k,p,'='+s if s else '')
+        await asyncio.sleep(0)
+        return crex
+
     async def build_lineup(self,acct=None):
         self.source_groups={}
         self.group_order=[]
@@ -337,14 +388,16 @@ class Data:
         lineup={}
         nsources=0
         #get the compiled patterns. Each will be (Pattern,replace) even if replace is unused
-        re_group_rename=await self.config.get_res('group_rename')
-        re_groups=await self.config.get_res('groups')
-        re_streams=await self.config.get_res('streams')
-        re_streams_exclude=await self.config.get_res('streams_exclude')
-        re_rename=await self.config.get_res('rename')
-        re_replace=await self.config.get_res('replace')
-        re_order=await self.config.get_res('order')
-        id_map=dict((v.lower(),k) for k,v in self.config.map.items()) #map of epg id back to name
+        re_group_rename=await self.compile_regex('group_rename')
+        re_groups=await self.compile_regex('groups')
+        re_streams=await self.compile_regex('streams')
+        re_streams_exclude=await self.compile_regex('streams_exclude')
+        re_rename=await self.compile_regex('rename')
+        re_replace=await self.compile_regex('replace')
+        re_order=await self.compile_regex('order')
+        #get the manual mappings
+        map_name_id=dict(p.split('=',1) for p in self.config.map)
+        map_id_name=dict((v.lower(),k) for k,v in map_name_id.items())
         try:
             for url in self.groups_cache.keys():
                 self.source_groups[url]={}
@@ -394,12 +447,12 @@ class Data:
                     nsources+=1
                 for s in streams:
                     #set names and EPG IDs if mapped
-                    if s[0] in self.config.map:
-                        logging.debug('lineup: map %s %s -> %s',s[0],s[1],self.config.map[s[0]].lower())
-                        s[1]=self.config.map[s[0]].lower()
-                    elif s[1] in id_map:
-                        logging.debug('lineup: map %s -> %s %s',s[0],id_map[s[1]],s[1])
-                        s[0]=id_map[s[1]]
+                    if s[0] in map_name_id:
+                        logging.debug('lineup: map %s %s -> %s',s[0],s[1],map_name_id[s[0]].lower())
+                        s[1]=map_name_id[s[0]].lower()
+                    elif s[1] in map_id_name:
+                        logging.debug('lineup: map %s -> %s %s',s[0],map_id_name[s[1]],s[1])
+                        s[0]=map_id_name[s[1]]
                     #key will be name lower/snakecased.
                     k=s[0].lower().replace(' ','_') 
                     #auto mapping will merge channels with different names if the epg ids match
@@ -430,8 +483,8 @@ class Data:
                     #ensure a guide ID if possible
                     if not lineup[k]['GuideID']:
                         lineup[k]['GuideID']=s[1]
-                    #deal with source order changing by always keeping shorter name unless manual mapping
-                    if lineup[k]['GuideID'] not in id_map and len(s[0]) < len(lineup[k]['GuideNumber']):
+                    #deal with source order changing by always keeping shorter name
+                    if len(s[0]) < len(lineup[k]['GuideNumber']):
                         logging.debug('lineup: autorename %s -> %s',lineup[k]['GuideNumber'],s[0])
                         lineup[k].update(GuideNumber=s[0],GuideName=s[0])
                     await asyncio.sleep(0)
@@ -558,11 +611,10 @@ async def main(url,m3u=None,xml=None):
     data=Data(config)
     r=parse_url(url)
     if r:
-        r=r.split() 
         url,a=r[0],Account(*r[1:3])
         await data.refresh_accts({url:[a]})
         a=data.accounts[url][0]
-        print (url,' '.join(str(s) for s in a.data()))
+        print (url,' '.join(str(s) for s in list(a.data().values())[:-2])) #strip off info and source
         if m3u:
             if not config.streams:
                 config.streams=['']

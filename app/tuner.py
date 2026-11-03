@@ -2,11 +2,13 @@
 import time 
 import sys
 import os
+import signal
 import logging
 from logging.handlers import QueueHandler
 from collections import deque
 from urllib.parse import quote, unquote
 from html import escape
+import json
 import asyncio
 from aiohttp import web
 from iptv import Config, Data, Account
@@ -17,6 +19,7 @@ class Tuner:
         self.config=config
         self.data=data
         self.procs={}
+        self.last_config_error=None
 
 
     #redirect to or serve stream
@@ -36,7 +39,10 @@ class Tuner:
                 url=self.config.format % (acct.info['server_info']['url'], 
                         acct.info['server_info']['port'], acct.username, acct.password, 
                         l['sources'][source])
-                if self.config.direct:
+                direct=request.query.get('direct')
+                if direct is None:
+                    direct=self.config.direct
+                if direct:
                     #redirect client to stream
                     logging.info('stream: %s %s redirected to %s', request.remote, k, url)
                     return web.Response(status=302,headers={'Location':url})
@@ -91,7 +97,7 @@ class Tuner:
             return web.Response(status=404,text=k)
 
 
-    #serve HDHR data
+    #serve API
     async def get_discover(self,request):
         return web.json_response({
                 "DeviceID": "TUNER",
@@ -109,9 +115,41 @@ class Tuner:
         })
 
     async def get_lineup_json(self,request):
+        r=await self.lineup_params(request,'/lineup.json')
+        if r:
+            return r
         lineup = await self.data.rescan()
         return web.json_response(list(lineup.values())) if lineup else web.Response(status=503)
 
+    async def lineup_params(self,request,location):
+        #handle API actions
+        if 'del' in request.query:
+            params={unquote(request.query['del']):unquote(request.query['v'])}
+            await self.config.update(remove=True,**params)
+            await self.data.rescan()
+            return web.Response(status=302,headers={'Location':location})
+
+    async def get_config_json(self,request):
+        return web.json_response(await self.config.get_config(**dict((k,int(v)) for k,v in request.query.items())))
+
+    async def get_log_json(self,request):
+        return web.json_response([lr.getMessage() for lr in LOGQ])
+
+    async def get_status_json(self,request):
+        r=await self.status_params(request,'/status.json')
+        if r:
+            return r
+        return web.json_response({
+            'accounts':dict((url,[a.data() for a in self.data.accounts[url]]) for url in self.data.accounts),
+            'procs':[{'pid':pid, 'client':p[0], 'stream':p[1], 'cmd':p[2]} for pid,p in self.procs.items()]
+        })
+
+    async def status_params(self,request,location):
+        if 'kill' in request.query:
+            pid=int(request.query['kill'])
+            if pid in self.procs:
+                os.kill(pid,signal.SIGKILL)
+            return web.Response(status=302,headers={'Location':'/'})
 
     #serve M#U/XMLTV
     async def get_m3u(self,request):
@@ -124,124 +162,9 @@ class Tuner:
 
 
     #serve HTML pages
-    async def get_lineup(self,request):
-        html='''<p><table>'''
-        async with self.data.lineup_lock:
-            if self.data.lineup:
-                for g in self.data.group_order:
-                    html+='<tr/><tr><th colspan=2 id="%s">%s</th></tr>\n'%(escape(quote(g)),escape(g))
-                    for k,l in [(k,l) for k,l in self.data.lineup.items() if l['GuideCategory']==g]:
-                        html+='<tr><td>%s</td><td><a href="%s">%s</a></td><td>%s</td></tr>\n'%(
-                            escape(''.join(s.split('//')[1][0] for s in l['sources'])),
-                            escape(l['URL']),
-                            escape(l['GuideName']),
-                            escape(l['GuideID']) if l['GuideID'] else ''
-                        )
-                html+='''</table></p>'''
-            html+='''<p><table>'''
-            for s,sg in self.data.source_groups.items():
-                html+='<tr><th>%s</th><td>%s</td></tr>'%(
-                    s,
-                    ','.join('<a href="#%s">%s</a>'%(escape(quote(g[0])),escape(g[0])) if g[1] else escape(g[0]) for g in sorted(sg.values()))
-                )
-            html+='''</table></p>'''
-            # filter builder
-            html+='''<datalist id=group-select>'''
-            for s,sg in self.data.source_groups.items():
-                #escape | character, this is common in group names and will break regexes
-                html+='\n'.join('<option value="%s">'%escape(g[0].replace('|','\\|')) for g in sorted(sg.values()))
-            html+='''</datalist>'''
-        html+='''<form method=post><p><table>
-        <tr><th>group rename:</th>
-        <td><input type=checkbox title='match at start' name=group_rename_start></td>
-        <td><input type=text size=40 title='remove matching text from group name' name=group_rename></td>
-        <td><input type=checkbox title='match at end' name=group_rename_end></td>
-        <td>to</td><td><input type=text title='replace matching text with' name=group_rename_to></td></tr>
-        <tr><th>group select:</th><td><input type=checkbox title='match at start' name=groups_start></td>
-        <td><input type=text size=40 name=groups list=group-select></td>
-        <td><input type=checkbox title='match at end' name=groups_end></td></tr>
-        <tr><th>stream select:</th>
-        <td><input type=checkbox title='match at start' name=streams_start></td>
-        <td><input type=text size=40 name=streams></td>
-        <td><input type=checkbox title='match at end' name=streams_end></td>
-        <td><input type=checkbox title='exclude matching streams' name=streams_exclude></td><td>exclude</td></tr>
-        <tr><th>stream rename:</th>
-        <td><input type=checkbox title='match at start' name=rename_start></td>
-        <td><input type=text size=40 title='remove matching text from name' name=rename></td>
-        <td><input type=checkbox title='match at end' name=rename_end></td>
-        <td>to</td><td><input type=text title='replace matching text with' name=rename_to></td></tr>
-        <tr><th>stream replace:</th>
-        <td><input type=checkbox title='match at start' name=replace_start></td>
-        <td><input type=text title='if channel matching pattern exists, replace channels matching name without pattern' size=40 name=replace></td>
-        <td><input type=checkbox title='match at end' name=replace_end></td></tr>
-        <tr><th>map:</th>
-        <td></td>
-        <td><input type=text title='name to map to guide ID' size=40 name=map></td>
-        <td></td>
-        <td>id:</td><td><input type=text title='guide ID to map to name' name=map_to></td></tr>
-        <tr><th>comment:</th>
-        <td></td>
-        <td><input type=text size=40 name=comment></td>
-        <td colspan=2></td>
-        <td><input type=submit name='add_filter' value="Add filter"></td></tr>
-        </table></p></form>'''
-        return web.Response(text=self.html_start()+html+self.html_end(await self.config.get_config()), content_type='text/html')
-
-    async def get_log(self,request):
-        #serve logs
-        html='<p>'
-        for l in LOGQ:
-            html+=escape(l.msg)+'<br>'
-        html+='</p>'
-        return web.Response(text=self.html_start()+html+self.html_end(await self.config.get_config()), content_type='text/html')
-
-    async def get_status(self,request):
-        html=''
-        if self.procs:
-            html+='''<p><table><tr><th>pid</th><th>client</th><th>stream</th><th>command</th></tr>'''
-            for pid,args in self.procs.items():
-                html+='<tr><td>%s</td><td>%s</td><td>%s</td><td>%s</td></tr>\n'%(pid,*args)
-            html+='''
-            </table>
-        </p>'''
-        html+='''<p><table>'''
-        if self.data.accounts:
-            html+='''<tr><th></th><th>user</th><th>pass</th><th>pri</th><th colspan=2>status</th><th>expires</th>'''
-            t=int(self.config.cache+self.data.last_refresh-time.time())
-            if t > 0:
-                html+='<td>(cached for %ss)</td>'%t
-            html+='''</tr>'''
-            for url,accts in self.data.accounts.items():
-                html+='<tr><th colspan=7>%s</th><td>(%s streams)</td></tr>'%(url,
-                len(list(s for s in self.data.lineup.values() if url in s['sources'])) if self.data.lineup else '0')
-                for a in accts:
-                    html+='<tr><td></td><td>%s</td><td>%s</td><td>%s</td><td>%s/%s</td><td>%s</td><td>%s</td></tr>\n'%tuple(escape(str(d)) for d in a.data())
-        html+='''<tr><td><form method=post><input type=submit name=rescan value=Rescan></form></td></tr>'''
-        html+='''
-            <tr><td colspan=8><form method=post>
-                URL: <input type=text size=80 name=add_account>
-                <input type=submit value="Add account">
-            </form></td></tr>'''
-        if self.data.lineup:
-            t=int(self.config.lineup_cache+self.data.last_rescan-time.time())
-            if t > 0:
-                cached='<td>(cached for %ss)</td>'%t
-            else: 
-                cached=''
-            url='http://%s:%s/m3u' % (self.config.server_ip,self.config.server_port)
-            html+='<tr><th>M3U</th><td colspan=6><a href="'+url+'">'+url+'</a></td>'+cached+'</tr>'
-            url='http://%s:%s/xmltv' % (self.config.server_ip,self.config.server_port)
-            html+='<tr><th>XMLTV</th><td colspan=6><a href="'+url+'">'+url+'</a>'+(cached if self.data.xmltv_cache else '')+'</tr>'
-        html+='''</table></p>'''
-        html+='''<p><table>'''
-        env=await self.config.reload()
-        for (k,v) in sorted(env.items()):
-            html+='<tr><th>%s</th><td>%s</td></tr>\n'%(escape(k),escape(str(v)))
-        html+='''</table></p>'''
-        return web.Response(text=self.html_start()+html+self.html_end(await self.config.get_config()), content_type='text/html')
-
     def html_start(self):
-        return '''<html>
+        #nav bar and source status
+        html='''<html>
         <head>
             <style>
                 body{font-family:monospace}
@@ -252,22 +175,191 @@ class Tuner:
         <p><table><tr>
             <th><a href='/'>status</a>&nbsp;&nbsp;&nbsp;</th>
             <th><a href='/log'>log</a>&nbsp;&nbsp;&nbsp;</th>
+            <th><a href='/sources'>sources</a>&nbsp;&nbsp;&nbsp;</th>
+            <th><a href='/config'>config</a>&nbsp;&nbsp;&nbsp;</th>
             <th><a href='/lineup'>lineup</a>&nbsp;</th><td>(%s streams)</td>
-        </tr></table></p>''' % (len(list(self.data.lineup)) if self.data.lineup else '0')
-
-    def html_end(self,config_text):
-        html=''
-        if self.config.config_file:
-            html+='''
-            <p>&nbsp;</p><p><form method=post>
-            <textarea style=font-family:monospace name=config cols=80 rows=25>'''
-            html+=escape(config_text)
-            html+='''</textarea><br>
-            <input type=submit value="save config">
-            </form></p>'''
-        html+='''</body><html>'''
+        </tr></table></p>\n''' % (len(list(self.data.lineup)) if self.data.lineup else '0')
+        html+='<p><table>\n'
+        if self.data.accounts:
+            html+='<tr><th></th><th>user</th><th>pass</th><th>pri</th><th colspan=2>status</th><th>expires</th>\n'
+            t=int(self.config.cache+self.data.last_refresh-time.time())
+            if t > 0:
+                html+='<td>(cached for %ss)</td>'%t
+            html+='</tr>'
+            for url,accts in self.data.accounts.items():
+                html+='<tr><th colspan=7>%s</th><td>(%s streams)</td></tr>\n'%(url,
+                len(list(s for s in self.data.lineup.values() if url in s['sources'])) if self.data.lineup else '0')
+                for a in accts:
+                    html+='<tr><td></td><td>%s</td><td>%s</td><td>%s</td><td>%s/%s</td><td>%s</td><td>%s</td></tr>\n'%tuple(escape(str(d)) for d in list(a.data().values())[:-2])
+        else:
+            html+='<tr><td>No sources configured</td></tr>\n'
+        html+='<tr><td><form method=post><input type=submit name=rescan value=Rescan></form></td></tr></table></p>\n'
         return html
 
+    def html_end(self):
+        html='''</body><html>'''
+        return html
+
+    async def get_status(self,request):
+        r=await self.status_params(request,'/')
+        if r:
+            return r
+        #m3u/xmltv links and active clients
+        html='<p><table>\n'
+        if self.data.lineup:
+            t=int(self.config.lineup_cache+self.data.last_rescan-time.time())
+            if t > 0:
+                cached='<td>(cached for %ss)</td>'%t
+            else: 
+                cached=''
+            url='http://%s:%s/m3u' % (self.config.server_ip,self.config.server_port)
+            html+='<tr><th>M3U</th><td colspan=6><a href="'+url+'">'+url+'</a></td>'+cached+'</tr>\n'
+            url='http://%s:%s/xmltv' % (self.config.server_ip,self.config.server_port)
+            html+='<tr><th>XMLTV</th><td colspan=6><a href="'+url+'">'+url+'</a>'+(cached if self.data.xmltv_cache else '')+'</tr>\n'
+        else:
+            html+='<tr><td>No data available</td></tr>\n'
+        html+='</table></p>\n<p><table>'
+        if self.procs:    
+            html+='<tr><td></td><th>pid</th><th>client</th><th>stream</th><th>command</th></tr>\n'
+            for pid,args in self.procs.items():
+                html+='<tr><td>[<a href="/?kill=%s">x</a>]</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td></tr>\n'%(pid,pid,*args)
+        else:
+            html+='<tr><td colspan=5>No active clients</td></tr>\n'
+        html+='</table></p>'
+        return web.Response(text=self.html_start()+html+self.html_end(), content_type='text/html')
+
+    async def get_log(self,request):
+        #serve logs
+        html='<p>'
+        for lr in LOGQ:
+            html+=escape(lr.getMessage())+'<br>'
+        html+='</p>'
+        return web.Response(text=self.html_start()+html+self.html_end(), content_type='text/html')
+
+    async def get_sources(self,request):
+        config=await self.config.get_config(sources=True)
+        #handle API actions
+        if request.query:
+            if 'remove' in request.query:
+                await self.config.remove_account(**dict((unquote(k),unquote(v)) for k,v in request.query.items()))
+            if 'source' in request.query:
+                await self.config.manage_source(**dict((unquote(k),unquote(v)) for k,v in request.query.items()))
+            await self.data.rescan()
+            return web.Response(status=302,headers={'Location':'/sources'})
+
+        html='<p>URL or SOURCE USERNAME PASSWORD:<br><form method=post><input type=text size=80 name=add_account><input type=submit value="Add account"></form></p>\n'
+        html+='<p><table><tr><td></td><th colspan=2>source/accounts</th><th>priority</th></tr>\n'
+        for url,source in config['sources'].items():
+            html+='<tr><td></td><th colspan=2>%s</th><td>'%escape(url)
+            if source.get('disabled'):
+                html+='[<a href="/sources?source=%s&disabled=0">enable</a>]'%escape(quote(url))
+            else:
+                pri=source.get('priority')
+                html+='[<a href="/sources?source=%s&priority=%s">-</a>]'%(escape(quote(url)),max(0,pri-1))
+                html+='%s'%pri
+                html+='[<a href="/sources?source=%s&priority=%s">+</a>]'%(escape(quote(url)),pri+1)
+                html+='&nbsp;[<a href="/sources?source=%s&disabled=1">disable</a>]'%escape(quote(url))
+            html+='</td></tr>\n'
+            for a in source['accounts']:
+                html+='<tr><td>[<a href="/sources?remove=%s&username=%s&password=%s">x</a>]</td>'%(
+                    escape(quote(url)),
+                    escape(quote(a['username'])),
+                    escape(quote(a['password']))
+                )
+                html+='<td>%s</td><td>%s</td></tr>\n'%(
+                    escape(quote(a['username'])),
+                    escape(quote(a['password']))
+                )
+        html+='</table></p>'
+        return web.Response(text=self.html_start()+html+self.html_end(), content_type='text/html')
+
+    async def get_config(self,request):
+        html=''
+        if self.last_config_error:
+            html+='<p><b>'+escape(self.last_config_error)+'</b><p>'
+        fields={str:('%s',40),int:('%d',10),bool:('%d',1)}
+        html+='''<p><form method=post><table>'''
+        await self.config.reload()
+        env=await self.config.get_config()
+        config=await self.config.get_config(defaults=False)
+        for (k,ev) in sorted(env.items()):
+            if type(ev) not in fields:
+                continue
+            fmt,size=fields[type(ev)]
+            cv=config.get(k)
+            html+='<tr><th>%s</th><td>'%escape(k)
+            if self.config.config_file:
+                html+='<input type=text name=%s size=%s'%(escape(k),size)
+                html+=' value="'+(escape(fmt%cv) if cv is not None else '')+'">'
+            html+='</td><td>'
+            if cv is None:
+                html+='<i>'+escape(fmt%ev)+"</i>"
+            html+='</td></tr>\n'
+        html+='''</table></p>'''
+        if self.config.config_file:
+            html+='''<input type=submit name=update_config value='Update config'>'''
+        html+='''</form>'''
+        if self.config.config_file:
+            html+='''<p>JSON editor</p><p><form method=post>
+            <textarea style=font-family:monospace name=save_config cols=80 rows=25>'''
+            html+=escape(await self.config.get_config_json(defaults=False,sources=True))
+            html+='''</textarea><br>
+            <input type=submit value="Save JSON">
+            </form>'''
+            html+='</p>'
+        return web.Response(text=self.html_start()+html+self.html_end(), content_type='text/html')
+
+    async def get_lineup(self,request):
+        r=await self.lineup_params(request,'/lineup')
+        if r:
+            return r
+        #serve html page
+        async with self.data.lineup_lock:
+            html='''<p><table>'''
+            if self.data.lineup:
+                for g in self.data.group_order:
+                    html+='<tr/><tr><th colspan=2 id="%s">%s</th></tr>\n'%(escape(quote(g)),escape(g))
+                    for k,l in [(k,l) for k,l in self.data.lineup.items() if l['GuideCategory']==g]:
+                        html+='<tr><td>%s</td><td><a href="%s">%s</a></td><td>%s</td></tr>\n'%(
+                            escape(''.join(s.split('//')[1][0] for s in l['sources'])),
+                            escape(l['URL']),
+                            escape(l['GuideName']),
+                            escape(l['GuideID']) if l['GuideID'] else ''
+                        )
+                html+='</table></p>\n'
+            html+='<p><table>\n'
+            for s,sg in self.data.source_groups.items():
+                html+='<tr><th>%s</th><td>%s</td></tr>\n'%(
+                    s,
+                    ','.join('<a href="#%s">%s</a>'%(escape(quote(g[0])),escape(g[0])) if g[1] else escape(g[0]) for g in sorted(sg.values()))
+                )
+            html+='</table></p>\n'
+            #get list of source groups for select
+            html+='<datalist id=groups-select>\n'
+            for s,sg in self.data.source_groups.items():
+                #escape | character, this is common in group names and will break regexes
+                html+='\n'.join('<option value="%s">'%escape(g[0].replace('|','\\|')) for g in sorted(sg.values()))
+            #now list of groups in lineup for order
+            order_list=set(l['GuideCategory'] for l in self.data.lineup.values())
+            html+='</datalist>\n<datalist id=order-select>\n'
+            html+='\n'.join('<option value="%s">'%escape(g.replace('|','\\|')) for g in sorted(order_list))
+            html+='</datalist><p><table>\n'
+            #get the list args from the config, those will be the filters
+            filter_types=[k for k in self.config.args if self.config.args[k][0] is list]
+            config=await self.config.get_config()
+            for ft in filter_types:
+                #build the list and add field for each filter
+                html+=self.filter_list(ft,config[ft])
+            html+='</table>'
+        return web.Response(text=self.html_start()+html+self.html_end(), content_type='text/html')
+
+    def filter_list(self,k,filters):
+        # filter builder
+        html='<tr><th colspan=2>%s</th></tr><form method=post>' % escape(k)
+        for f in filters:
+            html+='<tr><td>[<a href="/lineup?del=%s&v=%s">x</a>]</td><td>%s</td></tr>'%(escape(quote(k)),escape(quote(f)),escape(f))
+        html+='<tr><td></td><td><input type=text size=40 name=%s list=%s-select><input type=submit value=Add></td></tr></form>'%(escape(k),escape(k))
+        return html
 
     #handle form data POST
     async def handle_post(self,request):
@@ -283,7 +375,6 @@ class Tuner:
         await self.rescan()
         return web.Response()
 
-
     #form field handlers
     async def rescan(self,*args,**kwargs):
         #trigger a full account/lineup rescan
@@ -291,40 +382,58 @@ class Tuner:
 
     async def add_filter(self,key,val,**params):
         if val:
-            await self.config.add_filter(key,val,
-                start=key+'_start' in params,
-                end=key+'_end' in params,
-                exclude=key+'_exclude' in params,
-                rename_to=params.get(key+'_to'),
-                comment=params['comment']
-            )
+            await self.config.update(**{key:val})
             await self.data.rescan() #rebuild lineup
-    
+
     async def save_config(self,key,val,**params):
         # config text was submitted
-        await self.config.write(val)
-        await self.data.rescan()
+        self.last_config_error=None
+        try: 
+            await self.config.save(val)
+            await self.data.rescan()
+        except Exception as e:
+            logging.exception(e)
+            self.last_config_error=str(e)
     
+    async def update_config(self,key,val,**params):
+        self.last_config_error=None
+        try:
+            config={}
+            for k,v in params.items():
+                if not len(v):
+                    v=None
+                elif v.isdigit():
+                    v=int(v)
+                config[k]=v
+            await self.config.update(**config)
+            await self.data.rescan()
+        except Exception as e:
+            logging.exception(e)
+            self.last_config_error=str(e) 
+
     async def add_account(self,key,val,**params):
         # url/hash was submitted, add account and rescan
         if val:
             await self.config.add_account(val)
             #reload config, scan sources if fetch is True, rebuild lineup
-            await self.data.rescan(force_rescan=True)
+            await self.data.rescan()
 
 
     #return form field routing table
     def get_form_handler(self,k):
         return{
             'rescan':self.rescan,
-            'config':self.save_config,
+            'save_config':self.save_config,
+            'update_config':self.update_config,
             'add_account':self.add_account,
             'groups':self.add_filter,
             'group_rename':self.add_filter,
             'streams':self.add_filter,
+            'streams_exclude':self.add_filter,
             'rename':self.add_filter,
             'replace':self.add_filter,
-            'map':self.add_filter
+            'map':self.add_filter,
+            'order':self.add_filter
         }.get(k)
 
     #return path routing table
@@ -337,12 +446,18 @@ class Tuner:
             web.get('/lineup_status.json',self.get_lineup_status),
             web.get('/lineup.json',self.get_lineup_json),
             web.get('/lineup',self.get_lineup),
+            web.get('/log.json',self.get_log_json),
             web.get('/log',self.get_log),
+            web.get('/sources',self.get_sources),
+            web.get('/config.json',self.get_config_json),
+            web.get('/config',self.get_config),
+            web.get('/status.json',self.get_status_json),
             web.get('/',self.get_status),
             web.post('/lineup.post',self.lineup_post),
-            web.post('/',self.handle_post),
+            web.post('/config',self.handle_post),
+            web.post('/sources',self.handle_post),
             web.post('/lineup',self.handle_post),
-            web.post('/log',self.handle_post),
+            web.post('/',self.handle_post),
          ]
 
 
@@ -356,57 +471,38 @@ class LogQ(deque):
 Config.args.update( dict(
         server_ip=(str,'localhost'),
         server_port=(int,5004),
-        verbose=(int,0),
+        verbose=(bool,0),
         tuner_count=(int,4),
         cmd=(str,'ffmpeg -hide_banner -loglevel error -user_agent tuner -i %s -c copy -c:a ac3 -copyts -f mpegts pipe:1'),
-        direct=(int,0),
+        direct=(bool,0),
         buffer=(int,1024*1024) #buffer size for streaming
 ))
 
 #this will be written to the config file if it does not exist
-DEFAULT_CONFIG='''
-#default group name cleanup
-group_rename=^^USA? ?[\\|:] ?
-group_rename=^news.*weather$=news
-group_rename=^family.*kids$=kids
-group_rename=(basic|document).*=entertainment
-
-#default group selection
-groups=^(ENTERTAINMENT|KIDS|MOVIES|MUSIC|NEWS|SPORTS)$
-
-#group order in lineup, non-matching groups will be at end 
-order=LOCAL,SPORTS,NEWS,ENTERTAINMENT,MUSIC,KIDS,MOVIES
-
-#exclude non US and west
-streams=!(CA|CAN|UK|GB|ES|LBW)[: ][-\\|: ]
-streams=! \\(?west\\)?
-
-#to include your local stations, uncomment and replace with names of city and callsigns of your station, repeat for each city
-#streams=MYCITY.*(CALLSIGN|CALLSIGN)
-
-#clean up local channel names 
-#rename=.*(CALLSIGN|CALLSIGN).*=\\1
-
-#strip common prefixes/suffixes
-rename=^USA? ?[\\|: ], \\(?east\\)?, HD$
-
-#replace duplicate channels with higher def, prefer UHD,FHD,SHD
-replace=SHD$,FHD$,UHD$
-
-#accounts go here as
-#URL USERNAME PASSWORD PRIORITY
-
-'''
-
+DEFAULT_CONFIG=dict(
+    #default group name cleanup
+    group_rename=['^USA? ?[\\|:] ?','^news.*weather$=news','^family.*kids$=kids','(basic|document).*=entertainment'],
+    #default group selection
+    groups=['^(ENTERTAINMENT|KIDS|MOVIES|MUSIC|NEWS|SPORTS)$'],
+    #group order in lineup, non-matching groups will be at end 
+    order=['LOCAL','SPORTS','NEWS','ENTERTAINMENT','MUSIC','KIDS','MOVIES'],
+    #exclude non US and west,include callsigns of locals 
+    streams=['!(CA|CAN|UK|GB|ES|LBW)[: ][-\\|: ]','! \\(?west\\)?','MYCITY.*(CALLSIGN|CALLSIGN)'],
+    #clean up local channel names, strip common tags
+    rename=['.*(CALLSIGN|CALLSIGN).*=\\1','^USA? ?[\\|: ]',' \\(?east\\)?',' HD$'],
+    #replace duplicate channels with higher def, prefer UHD,FHD,SHD
+    replace=['SHD$','FHD$','UHD$']
+)
 
 async def setup(config_file=None):
     global LOGQ
     #init config
     config=Config(config_file)
     if config.config_file and not os.path.exists(config.config_file):
-        with open(self.config_file,'w') as f:
-            f.write(DEFAULT_CNFIG)
-    env=await config.reload()
+        with open(config_file,'w') as f:
+            json.dump(DEFAULT_CONFIG,f,indent=4)
+    await config.reload()
+    env = await config.get_config()
     #init logging
     LOGQ=LogQ(maxlen=config.logdepth)
     logging.basicConfig(level=int(config.loglevel), 
