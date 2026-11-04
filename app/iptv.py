@@ -498,18 +498,19 @@ class Data:
                 lineup=dict((k,l) for k,l in lineup.items() if l['GuideID'] and len(l['sources'])>=min_sources)
             # now order the final lineup
             self.lineup={}
-            ordered_groups=dict(sorted((l['GuideCategory'],False) for l in lineup.values()))
-            for p,r in re_order: #empty string at end will output all remaining groups
-                for g in ordered_groups:
+            groups=set(l['GuideCategory']for l in lineup.values())
+            ng=len(groups)
+            for p,r in re_order+[(re.compile(''),'')]: #empty string at end will output all remaining groups
+                for g in sorted(groups.copy()):
                     #if group matches pattern and has not been output
-                    if not ordered_groups[g] and p.search(g):
+                    if g in groups and p.search(g):
                         #output group and mark as output
-                        self.lineup.update((k,l) for k,l in lineup.items() if l['GuideCategory']==g)
-                        ordered_groups[g]=True
                         logging.debug('lineup: ordering group %s',g)
+                        self.lineup.update((k,l) for k,l in lineup.items() if l['GuideCategory']==g)
                         self.group_order.append(g)
+                        groups.remove(g) #group has been output
                         await asyncio.sleep(0)
-            logging.info('lineup: %s groups, %s streams',len(ordered_groups),len(self.lineup))
+            logging.info('lineup: %s groups, %s streams',ng,len(self.lineup))
         except Exception as e:
             logging.exception(e)
         return self.lineup
