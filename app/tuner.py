@@ -121,14 +121,6 @@ class Tuner:
         lineup = await self.data.rescan()
         return web.json_response(list(lineup.values())) if lineup else web.Response(status=503)
 
-    async def lineup_params(self,request,location):
-        #handle API actions
-        if 'del' in request.query:
-            params={unquote(request.query['del']):unquote(request.query['v'])}
-            await self.config.update(remove=True,**params)
-            await self.data.rescan()
-            return web.Response(status=302,headers={'Location':location})
-
     async def get_config_json(self,request):
         return web.json_response(await self.config.get_config(**dict((k,int(v)) for k,v in request.query.items())))
 
@@ -144,12 +136,6 @@ class Tuner:
             'procs':[{'pid':pid, 'client':p[0], 'stream':p[1], 'cmd':p[2]} for pid,p in self.procs.items()]
         })
 
-    async def status_params(self,request,location):
-        if 'kill' in request.query:
-            pid=int(request.query['kill'])
-            if pid in self.procs:
-                os.kill(pid,signal.SIGKILL)
-            return web.Response(status=302,headers={'Location':'/'})
 
     #serve M#U/XMLTV
     async def get_m3u(self,request):
@@ -163,7 +149,7 @@ class Tuner:
 
     #serve HTML pages
     def html_start(self):
-        #nav bar and source status
+        #nav bar and sources status
         html='''<html>
         <head>
             <style>
@@ -201,8 +187,8 @@ class Tuner:
         return html
 
     async def get_status(self,request):
-        r=await self.status_params(request,'/')
-        if r:
+        r=await self.call_handler(self.status_action,request)
+        if r: #action taken and we redirect
             return r
         #m3u/xmltv links and active clients
         html='<p><table>\n'
@@ -236,43 +222,6 @@ class Tuner:
         html+='</p>'
         return web.Response(text=self.html_start()+html+self.html_end(), content_type='text/html')
 
-    async def get_sources(self,request):
-        config=await self.config.get_config(sources=True)
-        #handle API actions
-        if request.query:
-            if 'remove' in request.query:
-                await self.config.remove_account(**dict((unquote(k),unquote(v)) for k,v in request.query.items()))
-            if 'source' in request.query:
-                await self.config.manage_source(**dict((unquote(k),unquote(v)) for k,v in request.query.items()))
-            await self.data.rescan()
-            return web.Response(status=302,headers={'Location':'/sources'})
-
-        html='<p>URL or SOURCE USERNAME PASSWORD:<br><form method=post><input type=text size=80 name=add_account><input type=submit value="Add account"></form></p>\n'
-        html+='<p><table><tr><td></td><th colspan=2>source/accounts</th><th>priority</th></tr>\n'
-        for url,source in config['sources'].items():
-            html+='<tr><td></td><th colspan=2>%s</th><td>'%escape(url)
-            if source.get('disabled'):
-                html+='[<a href="/sources?source=%s&disabled=0">enable</a>]'%escape(quote(url))
-            else:
-                pri=source.get('priority')
-                html+='[<a href="/sources?source=%s&priority=%s">-</a>]'%(escape(quote(url)),max(0,pri-1))
-                html+='%s'%pri
-                html+='[<a href="/sources?source=%s&priority=%s">+</a>]'%(escape(quote(url)),pri+1)
-                html+='&nbsp;[<a href="/sources?source=%s&disabled=1">disable</a>]'%escape(quote(url))
-            html+='</td></tr>\n'
-            for a in source['accounts']:
-                html+='<tr><td>[<a href="/sources?remove=%s&username=%s&password=%s">x</a>]</td>'%(
-                    escape(quote(url)),
-                    escape(quote(a['username'])),
-                    escape(quote(a['password']))
-                )
-                html+='<td>%s</td><td>%s</td></tr>\n'%(
-                    escape(quote(a['username'])),
-                    escape(quote(a['password']))
-                )
-        html+='</table></p>'
-        return web.Response(text=self.html_start()+html+self.html_end(), content_type='text/html')
-
     async def get_config(self,request):
         html=''
         if self.last_config_error:
@@ -297,11 +246,11 @@ class Tuner:
             html+='</td></tr>\n'
         html+='''</table></p>'''
         if self.config.config_file:
-            html+='''<input type=submit name=update_config value='Update config'>'''
+            html+='''<input type=submit value='Update config'>'''
         html+='''</form>'''
         if self.config.config_file:
             html+='''<p>JSON editor</p><p><form method=post>
-            <textarea style=font-family:monospace name=save_config cols=80 rows=25>'''
+            <textarea style=font-family:monospace name=config cols=80 rows=25>'''
             html+=escape(await self.config.get_config_json(defaults=False,sources=True))
             html+='''</textarea><br>
             <input type=submit value="Save JSON">
@@ -309,9 +258,40 @@ class Tuner:
             html+='</p>'
         return web.Response(text=self.html_start()+html+self.html_end(), content_type='text/html')
 
+    async def get_sources(self,request):
+        r=await self.call_handler(self.sources_action,request)
+        if r: #action taken and we redirect
+            return r
+        config=await self.config.get_config(sources=True)
+        html='<p>URL or SOURCE USERNAME PASSWORD:<br><form method=post><input type=text size=80 name=add><input type=submit value="Add account"></form></p>\n'
+        html+='<p><table><tr><td></td><th colspan=2>source/accounts</th><th>priority</th></tr>\n'
+        for url,source in config['sources'].items():
+            html+='<tr><td></td><th colspan=2>%s</th><td>'%escape(url)
+            if source.get('disabled'):
+                html+='[<a href="/sources?update=%s&disabled=0">enable</a>]'%escape(quote(url))
+            else:
+                pri=source.get('priority')
+                html+='[<a href="/sources?update=%s&priority=%s">-</a>]'%(escape(quote(url)),max(0,pri-1))
+                html+='%s'%pri
+                html+='[<a href="/sources?update=%s&priority=%s">+</a>]'%(escape(quote(url)),pri+1)
+                html+='&nbsp;[<a href="/sources?update=%s&disabled=1">disable</a>]'%escape(quote(url))
+            html+='</td></tr>\n'
+            for a in source['accounts']:
+                html+='<tr><td>[<a href="/sources?remove=%s&username=%s&password=%s">x</a>]</td>'%(
+                    escape(quote(url)),
+                    escape(quote(a['username'])),
+                    escape(quote(a['password']))
+                )
+                html+='<td>%s</td><td>%s</td></tr>\n'%(
+                    escape(quote(a['username'])),
+                    escape(quote(a['password']))
+                )
+        html+='</table></p>'
+        return web.Response(text=self.html_start()+html+self.html_end(), content_type='text/html')
+
     async def get_lineup(self,request):
-        r=await self.lineup_params(request,'/lineup')
-        if r:
+        r=await self.call_handler(self.config_action,request)
+        if r: #action taken and we redirect
             return r
         #serve html page
         async with self.data.lineup_lock:
@@ -357,84 +337,71 @@ class Tuner:
         # filter builder
         html='<tr><th colspan=2>%s</th></tr><form method=post>' % escape(k)
         for f in filters:
-            html+='<tr><td>[<a href="/lineup?del=%s&v=%s">x</a>]</td><td>%s</td></tr>'%(escape(quote(k)),escape(quote(f)),escape(f))
+            html+='<tr><td>[<a href="/lineup?remove=1&%s=%s">x</a>]</td><td>%s</td></tr>'%(escape(quote(k)),escape(quote(f)),escape(f))
         html+='<tr><td></td><td><input type=text size=40 name=%s list=%s-select><input type=submit value=Add></td></tr></form>'%(escape(k),escape(k))
         return html
 
-    #handle form data POST
-    async def handle_post(self,request):
-        data = await request.post()
-        for k in data:
-            handler=self.get_form_handler(k)
-            if handler:
-                await handler(k,data[k],**data)
-        return web.Response(status=302,headers={'Location':request.path}) #redirect to posting page
 
-    #handle HDHR channel scan request
-    async def lineup_post(self,request):
-        await self.rescan()
-        return web.Response()
+    #action handlers called by POST or a GET with query
+    async def status_action(self,kill=None,rescan=False):
+        # status takes rescan=1 or kill=pid
+        # returns True if page needs to be refreshed
+        if kill is not None:
+            pid=int(kill)
+            if pid in self.procs:
+                os.kill(pid,signal.SIGKILL)
+        if rescan:
+            await self.data.rescan(force_rescan=True)
 
-    #form field handlers
-    async def rescan(self,*args,**kwargs):
-        #trigger a full account/lineup rescan
-        await self.data.rescan(force_rescan=True)
-
-    async def add_filter(self,key,val,**params):
-        if val:
-            await self.config.update(**{key:val})
-            await self.data.rescan() #rebuild lineup
-
-    async def save_config(self,key,val,**params):
-        # config text was submitted
-        self.last_config_error=None
-        try: 
-            await self.config.save(val)
-            await self.data.rescan()
-        except Exception as e:
-            logging.exception(e)
-            self.last_config_error=str(e)
-    
-    async def update_config(self,key,val,**params):
-        self.last_config_error=None
+    async def config_action(self,**params):
+        # clear error text on any action
+        if params:
+            self.last_config_error=None
+            # rescan button is on every page 
+            if 'rescan' in params:
+                return await self.status_action(**params)
+        # config=json
+        # key=value
+        # remove=1 key=value
         try:
-            config={}
-            for k,v in params.items():
-                if not len(v):
-                    v=None
-                elif v.isdigit():
-                    v=int(v)
-                config[k]=v
-            await self.config.update(**config)
+            if 'config' in params:
+                await self.config.save(params['config'])
+            else:
+                await self.config.update(
+                    **dict((k,v if len(v) else None) for k,v in params.items())
+                )
             await self.data.rescan()
         except Exception as e:
-            logging.exception(e)
+            if self.config.loglevel < 20:
+                logging.exception(e)
             self.last_config_error=str(e) 
 
-    async def add_account(self,key,val,**params):
-        # url/hash was submitted, add account and rescan
-        if val:
-            await self.config.add_account(val)
-            #reload config, scan sources if fetch is True, rebuild lineup
-            await self.data.rescan()
+    async def sources_action(self,**params):
+        # rescan button is on every page 
+        if 'rescan' in params:
+            return await self.status_action(**params)
+        # add=url/hash was submitted, add account and rescan
+        # remove=url&username=username&password=password
+        # set=url&priority=pri&disabled=0/1
+        if 'add' in params:
+            await self.config.add_account(params['add'])
+        elif 'remove' in params:
+            await self.config.remove_account(**params)
+        elif 'update' in params:
+            await self.config.update_source(**params)
+        await self.data.rescan()
 
 
-    #return form field routing table
-    def get_form_handler(self,k):
-        return{
-            'rescan':self.rescan,
-            'save_config':self.save_config,
-            'update_config':self.update_config,
-            'add_account':self.add_account,
-            'groups':self.add_filter,
-            'group_rename':self.add_filter,
-            'streams':self.add_filter,
-            'streams_exclude':self.add_filter,
-            'rename':self.add_filter,
-            'replace':self.add_filter,
-            'map':self.add_filter,
-            'order':self.add_filter
-        }.get(k)
+    #handle POST data or query params, call handler
+    async def call_handler(self,handler,request,redirect=True,**params):
+        params.update(await request.post())
+        params.update((unquote(k),unquote(v)) for k,v in request.query.items())
+        if params or request.method == 'POST':
+            await handler(**params)
+            if redirect:
+                return web.Response(status=302,headers={'Location':request.path}) #redirect to posting page
+            else:
+                return web.Response()
 
     #return path routing table
     def get_routes(self):
@@ -453,12 +420,10 @@ class Tuner:
             web.get('/config',self.get_config),
             web.get('/status.json',self.get_status_json),
             web.get('/',self.get_status),
-            web.post('/lineup.post',self.lineup_post),
-            web.post('/config',self.handle_post),
-            web.post('/sources',self.handle_post),
-            web.post('/lineup',self.handle_post),
-            web.post('/log',self.handle_post),
-            web.post('/',self.handle_post),
+            web.post('/lineup.post',lambda request: self.call_handler(self.status_action,request,rescan=True,redirect=False)),
+            web.post('/{tail:(config|lineup).*}',lambda request: self.call_handler(self.config_action,request)),
+            web.post('/sources',lambda request: self.call_handler(self.sources_action,request)),
+            web.post('/{tail:.*}',lambda request: self.call_handler(self.status_action,request))
          ]
 
 

@@ -150,11 +150,13 @@ class Config:
                             self.__config.setdefault(k,[]).append(v)
                             logging.info('config: added %s to %s',v,k)
                     elif t:
-                        if v is None:
+                        if remove or v is None:
                             if k in self.__config:
                                 del self.__config[k]
                                 logging.info('config: deleted %s',k)
                         else:
+                            if t is bool and type(v) is str:
+                                v=int(v) #str to int before cast to bool
                             self.__config[k]=t(v)
                             logging.info('config: updated %s=%s',k,v)
             self.write()
@@ -178,15 +180,15 @@ class Config:
                         logging.debug('config: %s parsing %s',e,account)
         return accounts
 
-    async def manage_source(self,source=None,disabled=None,priority=None):
+    async def update_source(self,update=None,disabled=None,priority=None):
         # set the disbled flag or priority of a source
         async with self.lock:
-            s=self.sources[source]
+            s=self.sources[update]
             if disabled is not None:
                 s['disabled']=bool(int(disabled))
             if priority is not None:
                 s['priority']=int(priority)
-            logging.info('source %s set to disabled=%s priority=%s',source,s['disabled'],s['priority'])
+            logging.info('source %s set to disabled=%s priority=%s',update,s['disabled'],s['priority'])
             self.__config['sources']=self.sources.copy()
             self.write()
 
