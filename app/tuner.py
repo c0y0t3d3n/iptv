@@ -115,21 +115,27 @@ class Tuner:
         })
 
     async def get_lineup_json(self,request):
-        r=await self.lineup_params(request,'/lineup.json')
-        if r:
+        r=await self.call_handler(self.status_action,request)
+        if r: #action taken and we redirect
             return r
         lineup = await self.data.rescan()
         return web.json_response(list(lineup.values())) if lineup else web.Response(status=503)
 
     async def get_config_json(self,request):
+        r=await self.call_handler(self.status_action,request)
+        if r: #action taken and we redirect
+            return r
         return web.json_response(await self.config.get_config(**dict((k,int(v)) for k,v in request.query.items())))
 
     async def get_log_json(self,request):
+        r=await self.call_handler(self.status_action,request)
+        if r: #action taken and we redirect
+            return r
         return web.json_response([lr.getMessage() for lr in LOGQ])
 
     async def get_status_json(self,request):
-        r=await self.status_params(request,'/status.json')
-        if r:
+        r=await self.call_handler(self.status_action,request)
+        if r: #action taken and we redirect
             return r
         return web.json_response({
             'accounts':dict((url,[a.data() for a in self.data.accounts[url]]) for url in self.data.accounts),
@@ -215,6 +221,9 @@ class Tuner:
         return web.Response(text=self.html_start()+html+self.html_end(), content_type='text/html')
 
     async def get_log(self,request):
+        r=await self.call_handler(self.status_action,request)
+        if r: #action taken and we redirect
+            return r
         #serve logs
         html='<p>'
         for lr in LOGQ:
@@ -343,7 +352,7 @@ class Tuner:
 
 
     #action handlers called by POST or a GET with query
-    async def status_action(self,kill=None,rescan=False):
+    async def status_action(self,kill=None,rescan=False,**params):
         # status takes rescan=1 or kill=pid
         # returns True if page needs to be refreshed
         if kill is not None:

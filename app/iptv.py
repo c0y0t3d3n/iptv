@@ -491,11 +491,11 @@ class Data:
                         logging.debug('lineup: autorename %s -> %s',lineup[k]['GuideNumber'],s[0])
                         lineup[k].update(GuideNumber=s[0],GuideName=s[0])
                     await asyncio.sleep(0)
-            #if set, filter to channels with EPG IDs and at least minimum sources. 
+            #if set, filter to channels with EPG IDs and at least minimum sources (or manually mapped) 
             if self.config.min_sources:
                 #ensure the minimum is not > num sources in case a source is down 
                 min_sources=min(nsources,self.config.min_sources)
-                lineup=dict((k,l) for k,l in lineup.items() if l['GuideID'] and len(l['sources'])>=min_sources)
+                lineup=dict((k,l) for k,l in lineup.items() if l['GuideID'] and len(l['sources'])>=min_sources or l['GuideID'] in map_id_name)
             # now order the final lineup
             self.lineup={}
             groups=set(l['GuideCategory']for l in lineup.values())
