@@ -192,19 +192,19 @@ class Config:
             self.__config['sources']=self.sources.copy()
             self.write()
 
-    async def add_account(self,text):
-        text=text.strip()
-        info=parse_url(text)
-        if info:
+    async def add_account(self,add=None,username=None,password=None):
+        add=add.strip()
+        if not username or not password:
+            add,username,password=parse_url(add)
+        if add:
             async with self.lock:
-                url,username,password=info
-                self.sources.setdefault(url,{'priority':0,'disabled':False,'accounts':[]})['accounts'].append(
+                self.sources.setdefault(add,{'priority':0,'disabled':False,'accounts':[]})['accounts'].append(
                     {
                         'username':username,
                         'password':password
                     }
                 )
-                logging.info('config: added account for source %s username %s password %s',url,username,password)
+                logging.info('config: added account for source %s username %s password %s',add,username,password)
                 self.__config['sources']=self.sources.copy()
                 self.write()
 
@@ -579,7 +579,7 @@ class Data:
             await asyncio.sleep(0)
         return m3u
 
-    async def rescan(self,force_rescan=None,get_xmltv=False):
+    async def rescan(self,force_rescan=None,get_xmltv=False,get_groups=False):
         try:
             await self.config.reload()
             async with self.lineup_lock:
@@ -594,6 +594,8 @@ class Data:
                     logging.debug('lineup cached for %ss',int(self.config.lineup_cache+self.last_rescan-time.time()))
                 #build lineup
                 lineup = await self.build_lineup()
+                if get_groups:
+                    return dict((s,[g[0] for g in sg.values()]) for s,sg in self.source_groups.items())
             #get xmltv if requested
             if get_xmltv:
                 async with self.xmltv_lock:

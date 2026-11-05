@@ -22,7 +22,7 @@ class Tuner:
         self.last_config_error=None
 
 
-    #redirect to or serve stream
+    #serve stream
     async def get_stream(self,request):
         #serve stream URL or stream data
         k=unquote(request.match_info['stream'])
@@ -115,28 +115,24 @@ class Tuner:
         })
 
     async def get_lineup_json(self,request):
-        r=await self.call_handler(self.status_action,request)
-        if r: #action taken and we redirect
-            return r
         lineup = await self.data.rescan()
         return web.json_response(list(lineup.values())) if lineup else web.Response(status=503)
 
+    async def get_groups_json(self,request):
+        groups = await self.data.rescan(get_groups=True)
+        return web.json_response(groups) if groups else web.Response(status=503)
+
     async def get_config_json(self,request):
-        r=await self.call_handler(self.status_action,request)
-        if r: #action taken and we redirect
-            return r
         return web.json_response(await self.config.get_config(**dict((k,int(v)) for k,v in request.query.items())))
 
+    async def get_sources_json(self,request):
+        config = await self.config.get_config(sources=1)
+        return web.json_response(config['sources'])
+
     async def get_log_json(self,request):
-        r=await self.call_handler(self.status_action,request)
-        if r: #action taken and we redirect
-            return r
         return web.json_response([lr.getMessage() for lr in LOGQ])
 
     async def get_status_json(self,request):
-        r=await self.call_handler(self.status_action,request)
-        if r: #action taken and we redirect
-            return r
         return web.json_response({
             'accounts':dict((url,[a.data() for a in self.data.accounts[url]]) for url in self.data.accounts),
             'procs':[{'pid':pid, 'client':p[0], 'stream':p[1], 'cmd':p[2]} for pid,p in self.procs.items()]
@@ -153,7 +149,7 @@ class Tuner:
         return web.Response(text=xmltv, content_type='application/xml') if xmltv else web.Response(status=503)
 
 
-    #serve HTML pages
+    #serve pages
     def html_start(self):
         #nav bar and sources status
         html='''<html>
@@ -352,23 +348,21 @@ class Tuner:
 
 
     #action handlers called by POST or a GET with query
-    async def status_action(self,kill=None,rescan=False,**params):
+    async def status_action(self,rescan=False,kill=None,**params):
         # status takes rescan=1 or kill=pid
-        # returns True if page needs to be refreshed
+        if rescan:
+            await self.data.rescan(force_rescan=True)
         if kill is not None:
             pid=int(kill)
             if pid in self.procs:
                 os.kill(pid,signal.SIGKILL)
+
+    async def config_action(self,rescan=False,**params):
+        # clear error text on any action
+        self.last_config_error=None
+        # rescan button is on every page 
         if rescan:
             await self.data.rescan(force_rescan=True)
-
-    async def config_action(self,**params):
-        # clear error text on any action
-        if params:
-            self.last_config_error=None
-            # rescan button is on every page 
-            if 'rescan' in params:
-                return await self.status_action(**params)
         # config=json
         # key=value
         # remove=1 key=value
@@ -385,15 +379,15 @@ class Tuner:
                 logging.exception(e)
             self.last_config_error=str(e) 
 
-    async def sources_action(self,**params):
+    async def sources_action(self,rescan=False,**params):
         # rescan button is on every page 
-        if 'rescan' in params:
-            return await self.status_action(**params)
+        if rescan:
+            await self.data.rescan(force_rescan=True)
         # add=url/hash was submitted, add account and rescan
         # remove=url&username=username&password=password
         # set=url&priority=pri&disabled=0/1
         if 'add' in params:
-            await self.config.add_account(params['add'])
+            await self.config.add_account(**params)
         elif 'remove' in params:
             await self.config.remove_account(**params)
         elif 'update' in params:
@@ -401,7 +395,7 @@ class Tuner:
         await self.data.rescan()
 
 
-    #handle POST data or query params, call handler
+    #handle POST data or query params and call action handler
     async def call_handler(self,handler,request,redirect=True,**params):
         params.update(await request.post())
         params.update((unquote(k),unquote(v)) for k,v in request.query.items())
@@ -424,6 +418,8 @@ class Tuner:
             web.get('/lineup',self.get_lineup),
             web.get('/log.json',self.get_log_json),
             web.get('/log',self.get_log),
+            web.get('/groups.json',self.get_groups_json),
+            web.get('/sources.json',self.get_sources_json),
             web.get('/sources',self.get_sources),
             web.get('/config.json',self.get_config_json),
             web.get('/config',self.get_config),
@@ -431,7 +427,7 @@ class Tuner:
             web.get('/',self.get_status),
             web.post('/lineup.post',lambda request: self.call_handler(self.status_action,request,rescan=True,redirect=False)),
             web.post('/{tail:(config|lineup).*}',lambda request: self.call_handler(self.config_action,request)),
-            web.post('/sources',lambda request: self.call_handler(self.sources_action,request)),
+            web.post('/{tail:sources.*}',lambda request: self.call_handler(self.sources_action,request)),
             web.post('/{tail:.*}',lambda request: self.call_handler(self.status_action,request))
          ]
 
