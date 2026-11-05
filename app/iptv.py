@@ -7,7 +7,7 @@ import logging
 import re
 import random
 import json
-from urllib.parse import quote, urlsplit
+from urllib.parse import quote, urlsplit, urljoin, parse_qs
 from io import StringIO, BytesIO
 import xmltv
 import asyncio
@@ -29,7 +29,7 @@ def parse_url(text):
         try:
             parts=urlsplit(text.strip())
             url=parts.scheme+'://'+parts.netloc
-            params=dict(p.split('=') for p in parts.query.split('&'))
+            params=parse_qs(parts.query)
             info=url,params['username'],params['password']
         except Exception as e:
             logging.warning('%s parsing %s',e,text)      
@@ -38,7 +38,7 @@ def parse_url(text):
 
 class Config:
     '''store for config'''
-    #variables we accept and types to cast to
+    #variable we accept=(type to cast to,default value)
     args=dict(
         loglevel=(int,logging.INFO),
         logdepth=(int,100),
@@ -64,16 +64,15 @@ class Config:
         sources=(dict,{})
     )
     '''
-    sources will be { url : 
+    sources are { url : 
                     {
                         disabled: bool,
                         priority: int,
                         accounts: 
                             [
-                                {   'username': username,
-                                    'password': password,
-                                    'priority': priority
-                                }, ...
+                                {   username: username,
+                                    password: password,
+                                }
                             ]
                     }
                 } 
@@ -82,13 +81,13 @@ class Config:
     def __init__(self,config_file=None):
         self.config_file=config_file
         self.lock=asyncio.Lock()
-        self.__config={}
+        self.__config={} #config from JSON, not active config
 
     async def reload(self):
         '''read, build, and return config'''
         async with self.lock:
             self.config={}
-            #config from k=v in file
+            #config from json in file
             if self.config_file:
                 try:
                     with open(self.config_file) as f:
@@ -98,7 +97,7 @@ class Config:
             #build config from file and args
             for k,(t,d) in self.args.items():
                 try:
-                    #priorirty is env var > config > default
+                    #priorirty is env > config > default
                     setattr(self,k,t(os.getenv(k.upper(),self.__config.get(k,d))))
                 except Exception as e:
                     logging.warning('config %s: %s',k,e)
@@ -132,8 +131,10 @@ class Config:
     async def save(self,text):
         async with self.lock:
             self.__config=json.loads(text)
-            self.__config['sources']=self.sources.copy()
-            logging.info('config: saving to %s',self.config_file)
+            #make sure we keep sources if not being set
+            if not 'sources' in self.__config:
+                self.__config['sources']=self.sources.copy()
+            logging.info('config: saving %s',self.config_file)
             self.write()
 
     async def update(self,remove=False,**kwargs):
@@ -177,7 +178,7 @@ class Config:
                                     priority=source.get('priority',0))
                         )
                     except Exception as e:
-                        logging.debug('config: %s parsing %s',e,account)
+                        logging.warning('config: %s on source %s account %s',e,url,account)
         return accounts
 
     async def update_source(self,update=None,disabled=None,priority=None):
@@ -189,6 +190,7 @@ class Config:
             if priority is not None:
                 s['priority']=int(priority)
             logging.info('source %s set to disabled=%s priority=%s',update,s['disabled'],s['priority'])
+            #update sources in JSON config and save
             self.__config['sources']=self.sources.copy()
             self.write()
 
@@ -204,35 +206,31 @@ class Config:
                         'password':password
                     }
                 )
-                logging.info('config: added account for source %s username %s password %s',add,username,password)
+                logging.info('config: added source %s username %s password %s',add,username,password)
+                #update sources in JSON config and save
                 self.__config['sources']=self.sources.copy()
                 self.write()
 
     async def remove_account(self,remove=None,username=None,password=None):
-        try:
-            async with self.lock:
-                self.sources[remove]['accounts'].remove(
-                    {
-                        'username':username,
-                        'password':password
-                    }
-                )
-                logging.info('config: removed account for source %s username %s password %s',remove,username,password)
-                self.__config['sources']=self.sources.copy()
-                await self.write()
-        except:
-            logging.warning('config: not found removing account for source %s username %s password %s',remove,username,password)
+        async with self.lock:
+            self.sources[remove]['accounts'].remove(
+                {
+                    'username':username,
+                    'password':password
+                }
+            )
+            logging.info('config: removed source %s username %s password %s',remove,username,password)
+            #update sources in JSON config and save
+            self.__config['sources']=self.sources.copy()
+            self.write()
 
     def write(self):
         # write the saved config to JSON
         # call reload() after writing to read and apply the changes
-        try:
-            with open(self.config_file,'w') as f:
-                json.dump(self.__config,f,indent=4)
-                logging.debug('config: wrote %s',self.config_file)
-        except Exception as e:
-            logging.error('config: %s writing %s',e,self.config_file)
-                    
+        with open(self.config_file,'w') as f:
+            json.dump(self.__config,f,indent=4)
+            logging.debug('config: wrote %s',self.config_file)
+
 
 class Account:
     '''struct for xtream codes account and status'''
@@ -293,7 +291,7 @@ class Data:
             params.update(action=action)
         timeout=ClientTimeout(sock_connect=self.config.timeout,sock_read=self.config.timeout) if self.config.timeout else None
         async with ClientSession(timeout=timeout) as s:
-            async with s.get(url+'/'+path,params=params,headers=headers) as r:
+            async with s.get(urljoin(url,path),params=params,headers=headers) as r:
                 return await r.text() if raw else await r.json()
 
     async def check_acct(self,url,a):
@@ -517,7 +515,7 @@ class Data:
 
     async def fetch_xmltv(self,selected_sources):
         self.xmltv_cache={'data':{},'channels':{},'programs':[]}
-        for url, a in selected_sources:
+        for (url,a) in selected_sources:
             logging.info('xmltv: fetch from %s',url)
             try:
                 xmlin=StringIO(await self.xtream_request(url,a,path='xmltv.php',raw=True))
@@ -580,34 +578,28 @@ class Data:
         return m3u
 
     async def rescan(self,force_rescan=None,get_xmltv=False,get_groups=False):
-        try:
-            await self.config.reload()
-            async with self.lineup_lock:
-                #refresh account status and lineup if fetch=True, or cache expired
-                if force_rescan or not self.last_rescan or self.last_rescan + self.config.lineup_cache < time.time():
-                    #load accounts from config
-                    await self.refresh_accts(force_refresh=force_rescan)
-                    await self.fetch_lineup(await self.select_sources(check_free=False))
-                    self.last_rescan=time.time()
-                    self.xmltv_cache=None #clear cached XMLTV on lineup rescan 
-                else:
-                    logging.debug('lineup cached for %ss',int(self.config.lineup_cache+self.last_rescan-time.time()))
-                #build lineup
-                lineup = await self.build_lineup()
-                if get_groups:
-                    return dict((s,[g[0] for g in sg.values()]) for s,sg in self.source_groups.items())
-            #get xmltv if requested
-            if get_xmltv:
-                async with self.xmltv_lock:
-                    if not self.xmltv_cache:
-                        await self.fetch_xmltv(await self.select_sources(check_free=False))
-                    return await self.build_xmltv()
+        await self.config.reload()
+        async with self.lineup_lock:
+            #refresh account status and lineup if fetch=True, or cache expired
+            if force_rescan or not self.last_rescan or self.last_rescan + self.config.lineup_cache < time.time():
+                #load accounts from config
+                await self.refresh_accts(force_refresh=force_rescan)
+                await self.fetch_lineup(await self.select_sources(check_free=False))
+                self.last_rescan=time.time()
+                self.xmltv_cache=None #clear cached XMLTV on lineup rescan 
             else:
-                return lineup
-        except Exception as e:
-            if self.config.loglevel<20:
-                logging.exception(e)
-            logging.warning('rescan: no usable accounts')
+                logging.debug('lineup cached for %ss',int(self.config.lineup_cache+self.last_rescan-time.time()))
+            #build lineup
+            lineup = await self.build_lineup()
+            if get_groups:
+                return dict((s,[g[0] for g in sg.values()]) for s,sg in self.source_groups.items())
+        #get xmltv if requested
+        if get_xmltv:
+            async with self.xmltv_lock:
+                if not self.xmltv_cache:
+                    await self.fetch_xmltv(await self.select_sources(check_free=False))
+                return await self.build_xmltv()
+        return lineup
 
 
 async def main(url,m3u=None,xml=None):
@@ -618,7 +610,7 @@ async def main(url,m3u=None,xml=None):
     data=Data(config)
     r=parse_url(url)
     if r:
-        url,a=r[0],Account(*r[1:3])
+        url,a=r[0],Account(r[1],r[2])
         await data.refresh_accts({url:[a]})
         a=data.accounts[url][0]
         print (url,' '.join(str(s) for s in list(a.data().values())[:-2])) #strip off info and source

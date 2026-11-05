@@ -19,7 +19,6 @@ class Tuner:
         self.config=config
         self.data=data
         self.procs={}
-        self.last_config_error=None
 
 
     #serve stream
@@ -229,8 +228,6 @@ class Tuner:
 
     async def get_config(self,request):
         html=''
-        if self.last_config_error:
-            html+='<p><b>'+escape(self.last_config_error)+'</b><p>'
         fields={str:('%s',40),int:('%d',10),bool:('%d',1)}
         html+='''<p><form method=post><table>'''
         await self.config.reload()
@@ -358,8 +355,6 @@ class Tuner:
                 os.kill(pid,signal.SIGKILL)
 
     async def config_action(self,rescan=False,**params):
-        # clear error text on any action
-        self.last_config_error=None
         # rescan button is on every page 
         if rescan:
             await self.data.rescan(force_rescan=True)
@@ -375,9 +370,8 @@ class Tuner:
                 )
             await self.data.rescan()
         except Exception as e:
-            if self.config.loglevel < 20:
                 logging.exception(e)
-            self.last_config_error=str(e) 
+                return web.Response(text=str(e),status=400)
 
     async def sources_action(self,rescan=False,**params):
         # rescan button is on every page 
@@ -386,21 +380,26 @@ class Tuner:
         # add=url/hash was submitted, add account and rescan
         # remove=url&username=username&password=password
         # set=url&priority=pri&disabled=0/1
-        if 'add' in params:
-            await self.config.add_account(**params)
-        elif 'remove' in params:
-            await self.config.remove_account(**params)
-        elif 'update' in params:
-            await self.config.update_source(**params)
-        await self.data.rescan()
-
+        try:
+            if 'add' in params:
+                await self.config.add_account(**params)
+            elif 'remove' in params:
+                await self.config.remove_account(**params)
+            elif 'update' in params:
+                await self.config.update_source(**params)
+            await self.data.rescan()
+        except Exception as e:
+                logging.exception(e)
+                return web.Response(text=str(e),status=400)
 
     #handle POST data or query params and call action handler
     async def call_handler(self,handler,request,redirect=True,**params):
         params.update(await request.post())
         params.update((unquote(k),unquote(v)) for k,v in request.query.items())
         if params or request.method == 'POST':
-            await handler(**params)
+            r = await handler(**params)
+            if r: #handler returned a response 
+                return r
             if redirect:
                 return web.Response(status=302,headers={'Location':request.path}) #redirect to posting page
             else:
