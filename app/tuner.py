@@ -65,7 +65,7 @@ class Tuner:
                             data = await proc.stdout.read(self.config.buffer)
                             if not data: # cmd exited, source dropped the stream
                                 break
-                            logging.debug('stream: %s %s pid %s proxied %s bytes', request.remote, k, proc.pid, len(data))
+                            #logging.debug('stream: %s %s pid %s proxied %s bytes', request.remote, k, proc.pid, len(data))
                             await response.write(data)
                         # cmd exited likely source dropped the stream
                         rc=await proc.wait()

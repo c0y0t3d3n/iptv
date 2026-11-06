@@ -316,7 +316,7 @@ class Data:
         #refresh status of accounts from source if not cached
         async with self.accounts_lock:
             if force_refresh or not self.last_refresh or self.last_refresh + self.config.cache < time.time():
-                if accounts is None: #if no list passed use comfig accounts
+                if accounts is None: #if no list passed use config accounts
                     accounts=await self.config.get_accounts()
                 self.accounts={}
                 # check accounts and return map of source to accounts sorted by free slots
@@ -329,23 +329,24 @@ class Data:
                         logging.debug('refresh: %s',ra.info)
                         self.accounts.setdefault(url,[]).append(ra)
                         await asyncio.sleep(self.config.delay)
-                    #sort accounts to put active most free slots first
-                    self.accounts[url].sort(key=lambda a:(a.active(), a.available()), reverse=True)
                 self.last_refresh=time.time()
             else:
                 logging.debug('accounts cached for %ss',int(self.config.cache+self.last_refresh-time.time()))
+            #always sort accounts to put active most free slots first (may change while cached)
+            for url,accts in self.accounts.items():
+                self.accounts[url].sort(key=lambda a:(a.active(), a.available()), reverse=True)
 
     async def select_sources(self,source_list=None,check_free=True):
-        # return list of url, acct by highest priority and most free slots
-        # first account per source will be most free slots, so filter to source in list if active and optinally any free slots
-        # then sort by priority,-available to prefer highest  priority sources even if less free slots
+        # return list of url, acct by highest priority and most free slots (if url in source list)
+        # first account per source will be most free slots, so filter to sources with any active accouhts and optinally any free slots
+        # then sort by priority,-available to prefer highest priority sources even if less free slots
         async with self.accounts_lock:
             selected_sources=sorted(
                 ( (url,accts[0]) for url,accts in self.accounts.items() \
                     if (not source_list or url in source_list) \
                     and accts[0].active() \
                     and (not check_free or accts[0].available() > 0) ),
-                key=lambda e:(e[1].priority,-e[1].available())
+                key=lambda sa:(sa[1].priority,-sa[1].available())
             )
             logging.debug('select: %s',selected_sources)
             return selected_sources
