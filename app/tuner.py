@@ -76,7 +76,9 @@ class Tuner:
                                 sa.priority+=1
                         else:
                             self.data.last_refresh=0 #expire cache if not adjusting priority
-                    except OSError: 
+                    except OSError:
+                        # only decrement on normal exit. will help skip overloaded cached accounts. 
+                        acct.active_conns-=1
                         logging.debug('stream: %s %s pid %s disconnected',request.remote, k, proc.pid)
                     except Exception as e:
                         logging.exception(e)
@@ -84,7 +86,6 @@ class Tuner:
                         proc.kill()
                     except:
                         pass #it gone
-                    acct.active_conns-=1
                     logging.info('stream: %s %s pid %s stopped', request.remote, k, proc.pid)
                     del self.procs[proc.pid]
                     return response
