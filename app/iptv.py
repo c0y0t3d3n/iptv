@@ -30,7 +30,7 @@ def parse_url(text):
             parts=urlsplit(text.strip())
             url=parts.scheme+'://'+parts.netloc
             params=parse_qs(parts.query)
-            info=url,params['username'],params['password']
+            info=url,params['username'][0],params['password'][0]
         except Exception as e:
             logging.warning('%s parsing %s',e,text)      
             info=None
