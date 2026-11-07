@@ -8,7 +8,6 @@ from logging.handlers import QueueHandler
 from collections import deque
 from urllib.parse import quote, unquote
 from html import escape
-import json
 import asyncio
 from aiohttp import web
 from iptv import Config, Data, Account
@@ -20,8 +19,6 @@ class Tuner:
         self.data=data
         self.procs={}
 
-
-    #serve stream
     async def get_stream(self,request):
         #serve stream URL or stream data
         k=unquote(request.match_info['stream'])
@@ -96,8 +93,6 @@ class Tuner:
         else:
             return web.Response(status=404,text=k)
 
-
-    #serve API
     async def get_discover(self,request):
         return web.json_response({
                 "DeviceID": "TUNER",
@@ -114,270 +109,67 @@ class Tuner:
             'Source':'Cable'
         })
 
-    async def get_lineup_json(self,request):
+    async def get_lineup(self,request):
         lineup = await self.data.rescan()
         return web.json_response(list(lineup.values())) if lineup else web.Response(status=503)
 
-    async def get_groups_json(self,request):
+    async def get_groups(self,request):
         groups = await self.data.rescan(get_groups=True)
         return web.json_response(groups) if groups else web.Response(status=503)
 
-    async def get_config_json(self,request):
+    async def get_config(self,request):
         return web.json_response(await self.config.get_config(**dict((k,int(v)) for k,v in request.query.items())))
 
-    async def get_sources_json(self,request):
+    async def get_sources(self,request):
         config = await self.config.get_config(sources=1)
         return web.json_response(config['sources'])
 
-    async def get_log_json(self,request):
+    async def get_log(self,request):
         return web.json_response([lr.getMessage() for lr in LOGQ])
 
-    async def get_status_json(self,request):
+    async def get_status(self,request):
         return web.json_response({
-            'accounts':dict((url,[a.data() for a in self.data.accounts[url]]) for url in self.data.accounts),
-            'procs':[{'pid':pid, 'client':p[0], 'stream':p[1], 'cmd':p[2]} for pid,p in self.procs.items()]
+            'sources':dict((url,[a.data() for a in self.data.accounts[url]]) for url in self.data.accounts),
+            'procs':dict((pid,{'client':p[0], 'stream':p[1], 'cmd':p[2]}) for pid,p in self.procs.items()),
+            'lineup_nstreams':len(list(self.data.lineup)) if self.data.lineup else 0,
+            'sources_nstreams':dict((url,len(list(s for s in self.data.lineup.values() if url in s['sources'])) if self.data.lineup else 0) for url in self.data.accounts),
+            'sources_cached':max(0,int(self.config.cache+self.data.last_refresh-time.time())),
+            'lineup_cached':max(0,int(self.config.lineup_cache+self.data.last_rescan-time.time())),
+            'xmltv_cached':max(0,int(self.config.lineup_cache+self.data.last_rescan-time.time()) if self.data.xmltv_cache else 0)
         })
 
+    async def rescan(self,*args):
+        await self.data.rescan(force_rescan=True)
+        return web.Response()
 
-    #serve M#U/XMLTV
-    async def get_m3u(self,request):
-        lineup = await self.data.rescan()
-        return web.Response(text='\n'.join(await self.data.build_m3u(lineup))) if lineup else web.Response(status=503)
-
-    async def get_xmltv(self,request):
-        xmltv = await self.data.rescan(get_xmltv=True)
-        return web.Response(text=xmltv, content_type='application/xml') if xmltv else web.Response(status=503)
-
-
-    #serve pages
-    def html_start(self):
-        #nav bar and sources status
-        html='''<html>
-        <head>
-            <style>
-                body{font-family:monospace}
-                th{text-align:left}
-            </style>
-        </head>
-        <body>
-        <p><table><tr>
-            <th><a href='/'>status</a>&nbsp;&nbsp;&nbsp;</th>
-            <th><a href='/log'>log</a>&nbsp;&nbsp;&nbsp;</th>
-            <th><a href='/sources'>sources</a>&nbsp;&nbsp;&nbsp;</th>
-            <th><a href='/config'>config</a>&nbsp;&nbsp;&nbsp;</th>
-            <th><a href='/lineup'>lineup</a>&nbsp;</th><td>(%s streams)</td>
-        </tr></table></p>\n''' % (len(list(self.data.lineup)) if self.data.lineup else '0')
-        html+='<p><table>\n'
-        if self.data.accounts:
-            html+='<tr><th></th><th>user</th><th>pass</th><th>pri</th><th colspan=2>status</th><th>expires</th>\n'
-            t=int(self.config.cache+self.data.last_refresh-time.time())
-            if t > 0:
-                html+='<td>(cached for %ss)</td>'%t
-            html+='</tr>'
-            for url,accts in self.data.accounts.items():
-                html+='<tr><th colspan=7>%s</th><td>(%s streams)</td></tr>\n'%(url,
-                len(list(s for s in self.data.lineup.values() if url in s['sources'])) if self.data.lineup else '0')
-                for a in accts:
-                    html+='<tr><td></td><td>%s</td><td>%s</td><td>%s</td><td>%s/%s</td><td>%s</td><td>%s</td></tr>\n'%tuple(escape(str(d)) for d in list(a.data().values())[:-2])
-        else:
-            html+='<tr><td>No sources configured</td></tr>\n'
-        html+='<tr><td><form method=post><input type=submit name=rescan value=Rescan></form></td></tr></table></p>\n'
-        return html
-
-    def html_end(self):
-        html='''</body><html>'''
-        return html
-
-    async def get_status(self,request):
-        r=await self.call_handler(self.status_action,request)
-        if r: #action taken and we redirect
-            return r
-        #m3u/xmltv links and active clients
-        html='<p><table>\n'
-        if self.data.lineup:
-            t=int(self.config.lineup_cache+self.data.last_rescan-time.time())
-            if t > 0:
-                cached='<td>(cached for %ss)</td>'%t
-            else: 
-                cached=''
-            url='http://%s:%s/m3u' % (self.config.server_ip,self.config.server_port)
-            html+='<tr><th>M3U</th><td colspan=6><a href="'+url+'">'+url+'</a></td>'+cached+'</tr>\n'
-            url='http://%s:%s/xmltv' % (self.config.server_ip,self.config.server_port)
-            html+='<tr><th>XMLTV</th><td colspan=6><a href="'+url+'">'+url+'</a>'+(cached if self.data.xmltv_cache else '')+'</tr>\n'
-        else:
-            html+='<tr><td>No data available</td></tr>\n'
-        html+='</table></p>\n<p><table>'
-        if self.procs:    
-            html+='<tr><td></td><th>pid</th><th>client</th><th>stream</th><th>command</th></tr>\n'
-            for pid,args in self.procs.items():
-                html+='<tr><td>[<a href="/?kill=%s">x</a>]</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td></tr>\n'%(pid,pid,*args)
-        else:
-            html+='<tr><td colspan=5>No active clients</td></tr>\n'
-        html+='</table></p>'
-        return web.Response(text=self.html_start()+html+self.html_end(), content_type='text/html')
-
-    async def get_log(self,request):
-        r=await self.call_handler(self.status_action,request)
-        if r: #action taken and we redirect
-            return r
-        #serve logs
-        html='<p>'
-        for lr in LOGQ:
-            html+=escape(lr.getMessage())+'<br>'
-        html+='</p>'
-        return web.Response(text=self.html_start()+html+self.html_end(), content_type='text/html')
-
-    async def get_config(self,request):
-        html=''
-        fields={str:('%s',40),int:('%d',10),bool:('%d',1)}
-        html+='''<p><form method=post><table>'''
-        await self.config.reload()
-        env=await self.config.get_config()
-        config=await self.config.get_config(defaults=False)
-        for (k,ev) in sorted(env.items()):
-            if type(ev) not in fields:
-                continue
-            fmt,size=fields[type(ev)]
-            cv=config.get(k)
-            html+='<tr><th>%s</th><td>'%escape(k)
-            if self.config.config_file:
-                html+='<input type=text name=%s size=%s'%(escape(k),size)
-                html+=' value="'+(escape(fmt%cv) if cv is not None else '')+'">'
-            html+='</td><td>'
-            if cv is None:
-                html+='<i>'+escape(fmt%ev)+"</i>"
-            html+='</td></tr>\n'
-        html+='''</table></p>'''
-        if self.config.config_file:
-            html+='''<input type=submit value='Update config'>'''
-        html+='''</form>'''
-        if self.config.config_file:
-            html+='''<p>JSON editor</p><p><form method=post>
-            <textarea style=font-family:monospace name=config cols=80 rows=25>'''
-            html+=escape(await self.config.get_config_json(defaults=False,sources=True))
-            html+='''</textarea><br>
-            <input type=submit value="Save JSON">
-            </form>'''
-            html+='</p>'
-        return web.Response(text=self.html_start()+html+self.html_end(), content_type='text/html')
-
-    async def get_sources(self,request):
-        r=await self.call_handler(self.sources_action,request)
-        if r: #action taken and we redirect
-            return r
-        config=await self.config.get_config(sources=True)
-        html='<p>URL or SOURCE USERNAME PASSWORD:<br><form method=post><input type=text size=80 name=add><input type=submit value="Add account"></form></p>\n'
-        html+='<p><table><tr><td></td><th colspan=2>source/accounts</th><th>priority</th></tr>\n'
-        for url,source in config['sources'].items():
-            html+='<tr><td></td><th colspan=2>%s</th><td>'%escape(url)
-            if source.get('disabled'):
-                html+='[<a href="/sources?update=%s&disabled=0">enable</a>]'%escape(quote(url))
-            else:
-                pri=source.get('priority')
-                html+='[<a href="/sources?update=%s&priority=%s">-</a>]'%(escape(quote(url)),max(0,pri-1))
-                html+='%s'%pri
-                html+='[<a href="/sources?update=%s&priority=%s">+</a>]'%(escape(quote(url)),pri+1)
-                html+='&nbsp;[<a href="/sources?update=%s&disabled=1">disable</a>]'%escape(quote(url))
-            html+='</td></tr>\n'
-            for a in source['accounts']:
-                html+='<tr><td>[<a href="/sources?remove=%s&username=%s&password=%s">x</a>]</td>'%(
-                    escape(quote(url)),
-                    escape(quote(a['username'])),
-                    escape(quote(a['password']))
-                )
-                html+='<td>%s</td><td>%s</td></tr>\n'%(
-                    escape(quote(a['username'])),
-                    escape(quote(a['password']))
-                )
-        html+='</table></p>'
-        return web.Response(text=self.html_start()+html+self.html_end(), content_type='text/html')
-
-    async def get_lineup(self,request):
-        r=await self.call_handler(self.config_action,request)
-        if r: #action taken and we redirect
-            return r
-        #serve html page
-        async with self.data.lineup_lock:
-            html='''<p><table>'''
-            if self.data.lineup:
-                for g in self.data.group_order:
-                    html+='<tr/><tr><th colspan=2 id="%s">%s</th></tr>\n'%(escape(quote(g)),escape(g))
-                    for k,l in [(k,l) for k,l in self.data.lineup.items() if l['GuideCategory']==g]:
-                        html+='<tr><td>%s</td><td><a href="%s">%s</a></td><td>%s</td></tr>\n'%(
-                            escape(''.join(s.split('//')[1][0] for s in l['sources'])),
-                            escape(l['URL']),
-                            escape(l['GuideName']),
-                            escape(l['GuideID']) if l['GuideID'] else ''
-                        )
-                html+='</table></p>\n'
-            html+='<p><table>\n'
-            for s,sg in self.data.source_groups.items():
-                html+='<tr><th>%s</th><td>%s</td></tr>\n'%(
-                    s,
-                    ','.join('<a href="#%s">%s</a>'%(escape(quote(g[0])),escape(g[0])) if g[1] else escape(g[0]) for g in sorted(sg.values()))
-                )
-            html+='</table></p>\n'
-            #get list of source groups for select
-            html+='<datalist id=groups-select>\n'
-            for s,sg in self.data.source_groups.items():
-                #escape | character, this is common in group names and will break regexes
-                html+='\n'.join('<option value="%s">'%escape(g[0].replace('|','\\|')) for g in sorted(sg.values()))
-            #now list of groups in lineup for order
-            order_list=set(l['GuideCategory'] for l in self.data.lineup.values())
-            html+='</datalist>\n<datalist id=order-select>\n'
-            html+='\n'.join('<option value="%s">'%escape(g.replace('|','\\|')) for g in sorted(order_list))
-            html+='</datalist><p><table>\n'
-            #get the list args from the config, those will be the filters
-            filter_types=[k for k in self.config.args if self.config.args[k][0] is list]
-            config=await self.config.get_config()
-            for ft in filter_types:
-                #build the list and add field for each filter
-                html+=self.filter_list(ft,config[ft])
-            html+='</table>'
-        return web.Response(text=self.html_start()+html+self.html_end(), content_type='text/html')
-
-    def filter_list(self,k,filters):
-        # filter builder
-        html='<tr><th colspan=2>%s</th></tr><form method=post>' % escape(k)
-        for f in filters:
-            html+='<tr><td>[<a href="/lineup?remove=1&%s=%s">x</a>]</td><td>%s</td></tr>'%(escape(quote(k)),escape(quote(f)),escape(f))
-        html+='<tr><td></td><td><input type=text size=40 name=%s list=%s-select><input type=submit value=Add></td></tr></form>'%(escape(k),escape(k))
-        return html
-
-
-    #action handlers called by POST or a GET with query
-    async def status_action(self,rescan=False,kill=None,**params):
-        # status takes rescan=1 or kill=pid
-        if rescan:
-            await self.data.rescan(force_rescan=True)
-        if kill is not None:
-            pid=int(kill)
+    async def post_status(self,request):
+        params=await request.post()
+        if params.get('rescan'):
+            return await self.rescan()
+        pid=params.get('kill')
+        if pid:
+            pid=int(pid)
             if pid in self.procs:
                 os.kill(pid,signal.SIGKILL)
+        return web.Response()
 
-    async def config_action(self,rescan=False,**params):
-        # rescan button is on every page 
-        if rescan:
-            await self.data.rescan(force_rescan=True)
-        # config=json
+    async def post_config(self,request):
+        params=await request.post()
         # key=value
         # remove=1 key=value
         try:
-            if 'config' in params:
-                await self.config.save(params['config'])
-            else:
-                await self.config.update(
-                    **dict((k,v if len(v) else None) for k,v in params.items())
+            await self.config.update(
+                **dict((k,v if len(v) else None) for k,v in params.items())
                 )
             await self.data.rescan()
         except Exception as e:
                 logging.exception(e)
                 return web.Response(text=str(e),status=400)
+        return web.Response()
 
-    async def sources_action(self,rescan=False,**params):
-        # rescan button is on every page 
-        if rescan:
-            await self.data.rescan(force_rescan=True)
+    async def post_sources(self,request):
+        params=await request.post()
+        print(params)
         # add=url/hash was submitted, add account and rescan
         # remove=url&username=username&password=password
         # set=url&priority=pri&disabled=0/1
@@ -392,43 +184,35 @@ class Tuner:
         except Exception as e:
                 logging.exception(e)
                 return web.Response(text=str(e),status=400)
+        return web.Response()
 
-    #handle POST data or query params and call action handler
-    async def call_handler(self,handler,request,redirect=True,**params):
-        params.update(await request.post())
-        params.update((unquote(k),unquote(v)) for k,v in request.query.items())
-        if params or request.method == 'POST':
-            r = await handler(**params)
-            if r: #handler returned a response 
-                return r
-            if redirect:
-                return web.Response(status=302,headers={'Location':request.path}) #redirect to posting page
-            else:
-                return web.Response()
+    async def get_m3u(self,request):
+        lineup = await self.data.rescan()
+        return web.Response(text='\n'.join(await self.data.build_m3u(lineup))) if lineup else web.Response(status=503)
+
+    async def get_xmltv(self,request):
+        xmltv = await self.data.rescan(get_xmltv=True)
+        return web.Response(text=xmltv, content_type='application/xml') if xmltv else web.Response(status=503)
 
     #return path routing table
-    def get_routes(self):
+    def routes(self):
         return [
             web.get('/stream/{stream}',self.get_stream),
             web.get('/m3u',self.get_m3u),
             web.get('/xmltv',self.get_xmltv),
             web.get('/discover.json',self.get_discover),
             web.get('/lineup_status.json',self.get_lineup_status),
-            web.get('/lineup.json',self.get_lineup_json),
-            web.get('/lineup',self.get_lineup),
-            web.get('/log.json',self.get_log_json),
+            web.get('/lineup{tail:.*}',self.get_lineup),
             web.get('/log',self.get_log),
-            web.get('/groups.json',self.get_groups_json),
-            web.get('/sources.json',self.get_sources_json),
+            web.get('/groups',self.get_groups),
             web.get('/sources',self.get_sources),
-            web.get('/config.json',self.get_config_json),
             web.get('/config',self.get_config),
-            web.get('/status.json',self.get_status_json),
-            web.get('/',self.get_status),
-            web.post('/lineup.post',lambda request: self.call_handler(self.status_action,request,rescan=True,redirect=False)),
-            web.post('/{tail:(config|lineup).*}',lambda request: self.call_handler(self.config_action,request)),
-            web.post('/{tail:sources.*}',lambda request: self.call_handler(self.sources_action,request)),
-            web.post('/{tail:.*}',lambda request: self.call_handler(self.status_action,request))
+            web.get('/status',self.get_status),
+            web.get('/',lambda request: web.FileResponse('index.html')),
+            web.post('/lineup.post',self.rescan),
+            web.post('/status',self.post_status),
+            web.post('/config', self.post_config),
+            web.post('/sources',self.post_sources),
          ]
 
 
@@ -491,7 +275,7 @@ def main(*args):
     config,data=asyncio.run(setup(*args))
     tuner = Tuner(config,data)
     app = web.Application() 
-    app.add_routes(tuner.get_routes())
+    app.add_routes(tuner.routes())
     # start server
     web.run_app(app,
                 host=config.server_ip, 

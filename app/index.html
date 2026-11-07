@@ -1,0 +1,251 @@
+<html>
+    <head>
+        <title>tuner</title>
+        <style>
+            body{font-family:monospace}
+            th{text-align:left}
+        </style>
+        <script>
+
+            const filter_types=['group_rename','groups','streams','streams_exclude','map','rename','replace','order']
+            var currentPage
+            var timer
+            var UPPER
+
+            async function getState() {
+		    stat = await fetch('/status').then((r) => r.json())
+                if (stat.lineup_nstreams) document.getElementById('nstreams').innerHTML='('+stat.lineup_nstreams+' streams)'
+                else document.getElementById('nstreams').innerHTML=''
+                html=''
+                if (Object.entries(stat.sources).length) {
+                    html+='<table><tr><th></th><th>user</th><th>pass</th><th>pri</th><th colspan=2>status</th><th>expires</th>'
+                    if (stat.sources_cached) html+='<td>(cached for '+stat.sources_cached+'s)</td>'
+                    html+='</tr>'
+                    for ([source,accounts] of Object.entries(stat.sources)) {
+                        html+='<tr><th colspan=7>'+source+'</th><td>'+'('+stat.sources_nstreams[source]+' streams)</td></tr>'
+                        for (a of accounts) {
+                            html+='<tr><td></td><td>'+a.username+'</td><td>'+a.password+'</td><td>'+a.priority+'</td>'+
+                                '<td>'+a.active_conns+'/'+a.max_conns+'</td><td>'+a.status+'</td><td>'+a.expires+'</td></tr>'
+                        }
+                    }
+                    html+='</table>'
+                }
+                m3u=window.location.origin+'/m3u'
+                html+='<p><table><tr><th>M3U</th><td><a href="'+m3u+'">'+m3u+'</a></td>'
+                if (stat.lineup_cached) html+='<td>(cached for '+stat.lineup_cached+'s)</td>'
+                html+='</tr>'
+                xmltv=window.location.origin+'/xmltv'
+                html+='<tr><th>XMLTV</th><td><a href="'+xmltv+'">'+xmltv+'</a></td>'
+                if (stat.xmltv_cached) html+='<td>(cached for '+stat.xmltv_cached+'s)</td>'
+                html+='</tr></table></p>'
+                if (Object.entries(stat.procs).length){
+                    html+='<p><table><tr><th></th><th>pid</th><th>client</th><th>stream</th><th>cmd</th>'
+                    for ([pid,p] of Object.entries(stat.procs)) { 
+                        html+='<tr><td>[<a href=#/ onClick=killProc('+pid+')>x</a>'+']</td><td>'+pid+'</td><td>'+p.client+'</td><td>'+p.stream+'</td><td>'+p.cmd+'</td></tr>'
+                    }
+                    html+='</table></p>'
+                }
+                document.getElementById('status').innerHTML=html
+                if (currentPage==logPage) {
+                    text=''
+                    for (l of await fetch('/log').then(function(r) {return r.json()})) text+=l+'\n'
+                    document.getElementById('content').innerHTML='<pre>'+text+'</pre>'
+                }
+                clearTimeout(timer)
+                timer=setTimeout(getState,10000)
+            }
+
+            async function rescan() {
+                clearTimeout(timer)
+                menu=document.getElementById('menu').innerHTML
+                document.getElementById('menu').innerHTML='[rescanning...]'
+                status=await fetch('/status',{
+                    method:'POST',
+                    body: new URLSearchParams({ rescan: 1 })
+                })
+                document.getElementById('menu').innerHTML=menu
+                currentPage()
+            }
+            
+            async function killProc(pid){
+                await fetch('/status',{
+                    method:'POST',
+                    body: new URLSearchParams({ kill: pid })
+		        })
+            }
+
+            async function logPage() {
+                clearTimeout(timer)
+                currentPage=logPage
+                getState()
+            }
+
+            async function sourcesPage() {
+                clearTimeout(timer)
+                currentPage=sourcesPage
+                sources=await fetch('/sources').then(function(r) {return r.json()})
+                html="<p><input type=text size=80 id=add>[<a href=#/ onClick=addAccount(document.getElementById('add').value)>add</a>]</p>"
+                html+='<table><tr><th></th><th colspan=2>source/accounts</th><th>priority</th>'
+                for ([source,source_data] of Object.entries(sources)){
+                    html+='<tr><td></td><th colspan=2>'+source+'</th><td>'
+                    if (source_data.disabled) html+="[<a href=#/ onClick=updateSource('"+source+"',"+source_data.priority+",0)>enable</a>]"
+                    else {
+                        html+="[<a href=#/ onClick=updateSource('"+source+"',"+Math.max(0,source_data.priority-1)+",0)>-</a>]"
+                        html+=source_data.priority
+                        html+="[<a href=#/ onClick=updateSource('"+source+"',"+(source_data.priority+1)+",0)>+</a>]"
+                        html+="[<a href=#/ onClick=updateSource('"+source+"',"+source_data.priority+",1)>disable</a>]"
+                    }
+                    html+='</td></tr>'
+                    for (a of source_data.accounts) {
+                        html+="<tr><td>[<a href=#/ onClick=removeAccount('"+source+"','"+a.username+"','"+a.password+"')>x</a>]</td>"
+                        html+='<td>'+a.username+'</td><td>'+a.password+'</td></tr>'
+                    }
+                }
+                html+='</table>'
+                document.getElementById('content').innerHTML=html
+                getState()
+            }
+
+            async function updateSource(source,priority,disabled) {
+                status=await fetch('/sources',{
+                    method:'POST',
+                    body: new URLSearchParams({ 
+                        update: source, 
+                        priority: priority,
+                        disabled: disabled
+                    })
+                })
+                sourcesPage()
+            }
+
+            async function removeAccount(source,username,password) {
+                status=await fetch('/sources',{
+                    method:'POST',
+                    body: new URLSearchParams({ 
+                        remove: source, 
+                        username: username,
+                        password: password 
+                    })
+                })
+                sourcesPage()
+            }
+
+            async function addAccount(add) {
+                status=await fetch('/sources',{
+                    method:'POST',
+                    body: new URLSearchParams({ 
+                        add: add, 
+                    })
+                })
+                sourcesPage()
+            }
+
+            async function configPage() {
+                clearTimeout(timer)
+                currentPage=configPage
+                current=await fetch('/config?defaults=1').then(function(r) {return r.json()})
+                config=await fetch('/config?defaults=0').then(function(r) {return r.json()})
+                html='<p><form id=config><table>'
+                for ([k,v] of Object.entries(current)){
+                    if (typeof v != 'object'){
+                        if (typeof v == 'boolean') v=v?1:0
+                        if (k in config) cv=config[k] 
+                        else cv=''
+                        if (typeof cv == 'boolean') cv=cv?1:0
+                        html+='<tr><th>'+k+'</th><td><input type=text length=80 name='+k+' value="'+cv+'"></td><td>'+v+'</td></tr>'
+                    }
+                }
+                html+='</table>[<a href=#/ onClick=saveConfig()>save</a>]</form>'
+                document.getElementById('content').innerHTML=html
+                getState()
+            }
+
+            async function saveConfig() {
+                await fetch('/config',{ 
+                    method: 'POST', 
+                    body: new URLSearchParams(
+                        Array.from(new FormData(document.getElementById('config')))
+                        )
+                })
+                configPage()
+            }
+
+            async function lineupPage(){
+                clearTimeout(timer)
+                currentPage=lineupPage
+                order=[]
+                all_groups=[]
+                lineup=await fetch('/lineup').then(function(r) {return r.json()})
+                html="<p><table>"
+                for ([k,l] of Object.entries(lineup)){
+                    if (!order.includes(l.GuideCategory)){
+                        order.push(l.GuideCategory)
+                        html+="<tr><th colspan=3 id='"+l.GuideCategory+"'>"+l.GuideCategory+"</a></th></tr>"
+                    }
+                    html+='<tr><td>'
+                    for ([source,streamid] of Object.entries(l.sources)) html+=source.split('/')[2].substr(0,1) //first char of hostname if source 
+                    html+="</td><td><a href="+l.URL+">"+l.GuideName+"</a></td><td>"+l.GuideID+"</td></tr>"
+                }
+                html+='</table></p>'
+                html+='<p><table>'
+                source_groups=await fetch('/groups').then(function(r) {return r.json()})
+                for ([source,groups] of Object.entries(source_groups)) {
+                    html+='<tr><th>'+source+'</th><td>'
+                    glist=[]
+                    for (group of groups) {
+                        all_groups.push(group)
+                        if (order.includes(group)) glist.push("<a href='#"+group+"'>"+group+"</a>")
+                        else glist.push(group)
+                    }
+                    html+=glist.join()
+                    html+='</td></tr>'    
+                }
+                html+='</table></p>'
+                html+='<datalist id=groups-select>'
+                for (group of all_groups) html+="<option value='"+group+"'/>"
+                html+='</datalist>'
+                html+='<datalist id=order-select>'
+                for (group of order) html+="<option value='"+group+"'/>"
+                html+='</datalist>'
+                html+='<p><table>'
+                config=await fetch('/config').then(function(r) {return r.json()})
+                UPPER=config.upper
+                for (filter_type of filter_types) {
+                    html+='<tr><th colspan=2>'+filter_type+'</th></tr>'
+                    for (filter_text of config[filter_type]) html+="<tr><td>[<a href=#/ onClick=\"updateFilter('"+filter_type+"','"+filter_text+"',true)\">x</a>]</td><td>"+filter_text+"</td></tr>"
+                    html+="<tr><td></td><td><input type=text size=40 id="+filter_type+" list="+filter_type+"-select>"
+                    html+="[<a href=#/ onClick=updateFilter('"+filter_type+"',document.getElementById('"+filter_type+"').value,false)>add</a>]<br>&nbsp;</td></tr>"
+                }
+                html+='</table></p>'
+                document.getElementById('content').innerHTML=html
+                getState()
+            }
+
+            async function updateFilter(filter_type,filter_text,remove) {
+                params=remove?{'remove':true}:{}
+                params[filter_type]=UPPER?filter_text.toUpperCase():filter_text
+                status=await fetch('/config',{
+                    method:'POST',
+                    body: new URLSearchParams(params)
+                })
+                lineupPage()
+            }
+
+            async function onLoad() {
+                logPage()
+            }
+
+        </script>
+    </head>
+    <body onLoad=onLoad()>
+        <p id="status"></p>
+	    <p id="menu"><table><tr>
+            <th>[<a href=#/ onClick=rescan()>rescan</a>]</span></th>
+            <th>[<a href=#/ onClick=logPage()>log</a>]</th>
+            <th>[<a href=#/ onClick=sourcesPage()>sources</a>]</th>
+            <th>[<a href=#/ onClick=configPage()>config</a>]</th>
+            <th>[<a href=#/ onClick=lineupPage()>lineup</a>]</th><td><span id=nstreams></span></td>
+	    </tr></table></p>
+        <p id="content"></p>
+    </body>
+</html>

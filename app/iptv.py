@@ -122,21 +122,6 @@ class Config:
                 if (sources or e!='sources') and (defaults or e in self.__config)
             )
 
-    async def get_config_json(self,**kwargs):
-        return json.dumps(
-            await self.get_config(**kwargs),
-            indent=4
-        )
-
-    async def save(self,text):
-        async with self.lock:
-            self.__config=json.loads(text)
-            #make sure we keep sources if not being set
-            if not 'sources' in self.__config:
-                self.__config['sources']=self.sources.copy()
-            logging.info('config: saving %s',self.config_file)
-            self.write()
-
     async def update(self,remove=False,**kwargs):
         async with self.lock:
             for k,v in kwargs.items():
@@ -151,7 +136,7 @@ class Config:
                             self.__config.setdefault(k,[]).append(v)
                             logging.info('config: added %s to %s',v,k)
                     elif t:
-                        if remove or v is None:
+                        if v is None:
                             if k in self.__config:
                                 del self.__config[k]
                                 logging.info('config: deleted %s',k)
