@@ -109,13 +109,9 @@ class Tuner:
             'Source':'Cable'
         })
 
-    async def get_lineup(self,request):
-        lineup = await self.data.rescan()
-        return web.json_response(list(lineup.values())) if lineup else web.Response(status=503)
-
-    async def get_groups(self,request):
-        groups = await self.data.rescan(get_groups=True)
-        return web.json_response(groups) if groups else web.Response(status=503)
+    async def get_lineup(self,request,flat=False):
+        data = await self.data.rescan()
+        return web.json_response(list(self.data.lineup.values()) if flat else data)
 
     async def get_config(self,request):
         return web.json_response(await self.config.get_config(**dict((k,int(v)) for k,v in request.query.items())))
@@ -131,10 +127,11 @@ class Tuner:
         return web.json_response({
             'sources':dict((url,[a.data() for a in self.data.accounts[url]]) for url in self.data.accounts),
             'procs':dict((pid,{'client':p[0], 'stream':p[1], 'cmd':p[2]}) for pid,p in self.procs.items()),
-            'lineup_nstreams':len(list(self.data.lineup)) if self.data.lineup else 0,
-            'lineup_ngroups':len(set(l['GuideCategory'] for l in self.data.lineup.values())) if self.data.lineup else 0,
-            'sources_nstreams':dict((url,len(list(s for s in self.data.lineup.values() if url in s['sources'])) if self.data.lineup else 0) for url in self.data.accounts),
+            'sources_ngroups':dict((url,len(s)) for url,s in self.data.groups_cache.items()),
+            'sources_nstreams':dict((url,len(s)) for url,s in self.data.streams_cache.items()),
             'sources_cached':max(0,int(self.config.cache+self.data.last_refresh-time.time())),
+            'lineup_ngroups':len(self.data.group_lineup) if self.data.lineup else 0,
+            'lineup_nstreams':len(self.data.lineup) if self.data.lineup else 0,
             'lineup_cached':max(0,int(self.config.lineup_cache+self.data.last_rescan-time.time())),
             'xmltv_cached':max(0,int(self.config.lineup_cache+self.data.last_rescan-time.time()) if self.data.xmltv_cache else 0)
         })
@@ -203,9 +200,9 @@ class Tuner:
             web.get('/xmltv',self.get_xmltv),
             web.get('/discover.json',self.get_discover),
             web.get('/lineup_status.json',self.get_lineup_status),
-            web.get('/lineup{tail:.*}',self.get_lineup),
+            web.get('/lineup.json',lambda request: self.get_lineup(request,flat=True)),
+            web.get('/lineup',self.get_lineup),
             web.get('/log',self.get_log),
-            web.get('/groups',self.get_groups),
             web.get('/sources',self.get_sources),
             web.get('/config',self.get_config),
             web.get('/status',self.get_status),
@@ -226,6 +223,7 @@ class LogQ(deque):
 #add the tuner args to the config def
 Config.args.update( dict(
         server_ip=(str,'localhost'),
+        server_listen_ip=(str,''),
         server_port=(int,5004),
         verbose=(bool,0),
         tuner_count=(int,4),
@@ -279,7 +277,7 @@ def main(*args):
     app.add_routes(tuner.routes())
     # start server
     web.run_app(app,
-                host=config.server_ip, 
+                host=config.server_listen_ip if config.server_listen_ip else config.server_ip, 
                 port=config.server_port, 
                 access_log=logging.getLogger('aiohttp.access') if config.verbose else None
                 )

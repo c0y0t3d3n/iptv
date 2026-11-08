@@ -265,7 +265,7 @@ class Data:
         self.xmltv_lock=asyncio.Lock()
         self.accounts={}
         self.lineup={}
-        
+
     async def xtream_request(self,url,a,action=None,path='player_api.php',raw=False):
         # xtream codes API requests
         headers={}
@@ -369,6 +369,7 @@ class Data:
 
     async def build_lineup(self,acct=None):
         self.source_groups={}
+        self.group_lineup={}
         ids={}  
         groups={}
         lineup={}
@@ -482,20 +483,20 @@ class Data:
             # now order the final lineup
             self.lineup={}
             groups=set(l['GuideCategory']for l in lineup.values())
-            ng=len(groups)
             for p,r in re_order+[(re.compile(''),'')]: #empty string at end will output all remaining groups
-                for g in sorted(groups.copy()):
+                for g in sorted(groups):
                     #if group matches pattern and has not been output
-                    if g in groups and p.search(g):
+                    if p.search(g) and g not in self.group_lineup:
                         #output group and mark as output
                         logging.debug('lineup: ordering group %s',g)
-                        self.lineup.update((k,l) for k,l in lineup.items() if l['GuideCategory']==g)
-                        groups.remove(g) #group has been output
+                        streams=dict((k,l) for k,l in lineup.items() if l['GuideCategory']==g)
+                        self.lineup.update(streams)
+                        self.group_lineup.setdefault(g,[]).extend(streams.values())
                         await asyncio.sleep(0)
-            logging.debug('lineup: %s groups, %s streams',ng,len(self.lineup))
+            logging.debug('lineup: %s groups, %s streams',len(self.group_lineup),len(self.lineup))
         except Exception as e:
             logging.exception(e)
-        return self.lineup
+        return self.group_lineup
 
     async def fetch_xmltv(self,selected_sources):
         self.xmltv_cache={'data':{},'channels':{},'programs':[]}
@@ -556,12 +557,12 @@ class Data:
     async def build_m3u(self,lineup):
         m3u=[]
         m3u.append('#EXTM3U')
-        for k,l in lineup.items():
+        for l in lineup.values():
             m3u.append('#EXTINF:-1 group-title="%s" tvg-id="%s" tvg-name="%s",%s\n%s' % (l['GuideCategory'],l['GuideID'],l['GuideName'],l['GuideNumber'],l['URL']))
             await asyncio.sleep(0)
         return m3u
 
-    async def rescan(self,force_rescan=None,get_xmltv=False,get_groups=False):
+    async def rescan(self,force_rescan=None,get_xmltv=False):
         await self.config.reload()
         async with self.lineup_lock:
             #refresh account status and lineup if fetch=True, or cache expired
@@ -575,15 +576,17 @@ class Data:
                 logging.debug('lineup cached for %ss',int(self.config.lineup_cache+self.last_rescan-time.time()))
             #build lineup
             lineup = await self.build_lineup()
-            if get_groups:
-                return dict((s,[g[0] for g in sg.values()]) for s,sg in self.source_groups.items())
         #get xmltv if requested
         if get_xmltv:
             async with self.xmltv_lock:
                 if not self.xmltv_cache:
                     await self.fetch_xmltv(await self.select_sources(check_free=False))
                 return await self.build_xmltv()
-        return lineup
+        else:
+            return dict(
+                lineup=lineup,
+                groups=dict((source,[g[0] for g in groups.values()]) for source,groups in self.source_groups.items())
+            )
 
 
 async def main(url,m3u=None,xml=None):
@@ -602,9 +605,9 @@ async def main(url,m3u=None,xml=None):
             if not config.streams:
                 config.streams=['']
             await data.fetch_lineup([(url,a)])
-            lineup=await data.build_lineup(a)
+            await data.build_lineup(a)
             with open(m3u,'w') as f:
-                f.write('\n'.join(await data.build_m3u(lineup)))
+                f.write('\n'.join(await data.build_m3u(self.lineup)))
             if xml:
                 await data.fetch_xmltv([(url,a)])
                 with open(xml,'w') as f:
