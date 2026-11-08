@@ -132,6 +132,7 @@ class Tuner:
             'sources':dict((url,[a.data() for a in self.data.accounts[url]]) for url in self.data.accounts),
             'procs':dict((pid,{'client':p[0], 'stream':p[1], 'cmd':p[2]}) for pid,p in self.procs.items()),
             'lineup_nstreams':len(list(self.data.lineup)) if self.data.lineup else 0,
+            'lineup_ngroups':len(set(l['GuideCategory'] for l in self.data.lineup.values())) if self.data.lineup else 0,
             'sources_nstreams':dict((url,len(list(s for s in self.data.lineup.values() if url in s['sources'])) if self.data.lineup else 0) for url in self.data.accounts),
             'sources_cached':max(0,int(self.config.cache+self.data.last_refresh-time.time())),
             'lineup_cached':max(0,int(self.config.lineup_cache+self.data.last_rescan-time.time())),

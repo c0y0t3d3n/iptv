@@ -369,7 +369,6 @@ class Data:
 
     async def build_lineup(self,acct=None):
         self.source_groups={}
-        self.group_order=[]
         ids={}  
         groups={}
         lineup={}
@@ -491,10 +490,9 @@ class Data:
                         #output group and mark as output
                         logging.debug('lineup: ordering group %s',g)
                         self.lineup.update((k,l) for k,l in lineup.items() if l['GuideCategory']==g)
-                        self.group_order.append(g)
                         groups.remove(g) #group has been output
                         await asyncio.sleep(0)
-            logging.info('lineup: %s groups, %s streams',ng,len(self.lineup))
+            logging.debug('lineup: %s groups, %s streams',ng,len(self.lineup))
         except Exception as e:
             logging.exception(e)
         return self.lineup
@@ -552,7 +550,7 @@ class Data:
         writer.write(xmlout)
         await asyncio.sleep(0)
         xmlout.seek(0)
-        logging.info('xmltv: %s channels, %s programs',nc,np)
+        logging.debug('xmltv: %s channels, %s programs',nc,np)
         return xmlout.read().decode()
 
     async def build_m3u(self,lineup):

@@ -14,7 +14,7 @@
 
             async function getState() {
 		    stat = await fetch('/status').then((r) => r.json())
-                if (stat.lineup_nstreams) document.getElementById('nstreams').innerHTML='('+stat.lineup_nstreams+' streams)'
+                if (stat.lineup_nstreams) document.getElementById('nstreams').innerHTML='('+stat.lineup_nstreams+' streams '+stat.lineup_ngroups+' groups)'
                 else document.getElementById('nstreams').innerHTML=''
                 html=''
                 if (Object.entries(stat.sources).length) {
