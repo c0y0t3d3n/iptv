@@ -167,7 +167,6 @@ class Tuner:
 
     async def post_sources(self,request):
         params=await request.post()
-        print(params)
         # add=url/hash was submitted, add account and rescan
         # remove=url&username=username&password=password
         # set=url&priority=pri&disabled=0/1

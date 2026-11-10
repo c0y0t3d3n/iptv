@@ -160,21 +160,25 @@ class Config:
                         accounts.setdefault(url,[]).append(
                             Account(username=account['username'],
                                     password=account['password'],
-                                    priority=source.get('priority',0))
+                                    priority=source.get('priority',0),
+                                    disabled=account.get('disabled',False)) #may not be set
                         )
                     except Exception as e:
                         logging.warning('config: %s on source %s account %s',e,url,account)
         return accounts
 
-    async def update_source(self,update=None,disabled=None,priority=None):
-        # set the disbled flag or priority of a source
+    async def update_source(self,update=None,disabled=None,priority=None,username=None,password=None):
+        # set the disabled flag of an account
+        if username:
+            return await self.update_account(source=update,username=username,password=password,disabled=disabled)
+        # set the disabled flag or priority of a source
         async with self.lock:
             s=self.sources[update]
             if disabled is not None:
                 s['disabled']=bool(int(disabled))
             if priority is not None:
                 s['priority']=int(priority)
-            logging.info('source %s set to disabled=%s priority=%s',update,s['disabled'],s['priority'])
+            logging.info('source %s set disabled=%s priority=%s',update,s['disabled'],s['priority'])
             #update sources in JSON config and save
             self.__config['sources']=self.sources.copy()
             self.write()
@@ -198,14 +202,32 @@ class Config:
 
     async def remove_account(self,remove=None,username=None,password=None):
         async with self.lock:
-            self.sources[remove]['accounts'].remove(
-                {
-                    'username':username,
-                    'password':password
-                }
-            )
+            a={'username':username,'password':password}
+            accounts=self.sources[remove]['accounts']
+            #account may be disabled, if not found try with disabled flag set
+            try:
+                accounts.remove(a)
+            except ValueError:
+                a['disabled']=True
+                accounts.remove(a)
             logging.info('config: removed source %s username %s password %s',remove,username,password)
             #update sources in JSON config and save
+            self.__config['sources']=self.sources.copy()
+            self.write()
+
+    async def update_account(self,source=None,username=None,password=None,disabled=None):
+        async with self.lock:
+            disabled=int(disabled)
+            a={'username':username,'password':password}
+            accounts=self.sources[source]['accounts']
+            #find account and set disabled flag
+            if disabled:
+                accounts[accounts.index(a)]['disabled']=True
+            else:
+                #find account with disabled flag set and unset it
+                a['disabled']=True
+                del accounts[accounts.index(a)]['disabled']
+            logging.info('config: source %s username %s password %s set disabled=%s',source,username,password,disabled)
             self.__config['sources']=self.sources.copy()
             self.write()
 
@@ -219,7 +241,7 @@ class Config:
 
 class Account:
     '''struct for xtream codes account and status'''
-    def __init__(self,username,password,priority=0,active_conns=0,max_conns=0,status=None,expires=None,info={},source=None):
+    def __init__(self,username,password,priority=0,active_conns=0,max_conns=0,status=None,expires=None,info={},source=None,disabled=False):
         self.username=username
         self.password=password
         self.priority=int(priority) if priority else 0
@@ -228,7 +250,8 @@ class Account:
         self.status=status
         self.expires=datetime.fromtimestamp(int(expires)) if expires else None
         self.info=info
-        self.source=source
+        self.source=source,
+        self.disabled=disabled
 
     def active(self):
         return str(self.status).lower()=='active'
@@ -304,8 +327,9 @@ class Data:
                 if accounts is None: #if no list passed use config accounts
                     accounts=await self.config.get_accounts()
                 self.accounts={}
-                # check accounts and return map of source to accounts sorted by free slots
+                # check enabled accounts and return map of source to accounts sorted by free slots
                 for url,accts in accounts.items():
+                    accts=[a for a in accts if not a.disabled] #filter out disabled accounts
                     if self.config.check:
                         accts=random.sample(accts,min(self.config.check,len(accts)))
                     logging.info('refresh: %s',url)
@@ -313,6 +337,8 @@ class Data:
                         ra=await self.check_acct(url,a)
                         logging.debug('refresh: %s',ra.info)
                         self.accounts.setdefault(url,[]).append(ra)
+                        if ra.info and not ra.active(): #account is not active but was fetched, disable it
+                            await self.config.update_account(source=url,username=a.username,password=a.password,disabled=True)
                         await asyncio.sleep(self.config.delay)
                 self.last_refresh=time.time()
             else:

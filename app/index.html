@@ -80,11 +80,17 @@
                 sources=await fetch('/sources').then(function(r) {return r.json()})
                 html=`<p><input type=text size=80 id=add>[<a href=#/ onClick=addAccount(document.getElementById('add').value)>add</a>]</p>\n<table><tr><th></th><th colspan=2>source/accounts</th><th>priority</th></tr>\n`
                 for ([source,source_data] of Object.entries(sources)){
-                    html+=`<tr><td></td><th colspan=2>${source}</th><td>`
+                    html+=`<tr><td></td><th colspan=2>${source_data.disabled?'<s>':''}${source}${source_data.disabled?'</s>':''}</th><td>`
                     if (source_data.disabled) html+=`[<a href=#/ onClick=updateSource('${source}',${source_data.priority},0)>enable</a>]`
                     else html+=`[<a href=#/ onClick=updateSource('${source}',${Math.max(0,source_data.priority-1)},0)>-</a>]${source_data.priority}[<a href=#/ onClick=updateSource('${source}',${source_data.priority+1},0)>+</a>][<a href=#/ onClick=updateSource('${source}',${source_data.priority},1)>disable</a>]`
                     html+=`</td></tr>\n`
-                    for (a of source_data.accounts) html+=`<tr><td>[<a href=#/ onClick=removeAccount('${source}','${a.username}','${a.password}')>x</a>]</td><td>${a.username}</td><td>${a.password}</td></tr>\n`
+                    for (a of source_data.accounts) {
+                        html+=`<tr><td>[<a href=#/ onClick=removeAccount('${source}','${a.username}','${a.password}')>x</a>]</td><td>`
+                        html+=`${a.disabled?'<s>':''}${a.username}${a.disabled?'</s>':''}</td><td>${a.disabled?'<s>':''}${a.password}${a.disabled?'</s>':''}</td>`
+                        if (a.disabled) html+=`<td>[<a href=#/ onClick=updateAccount('${source}','${a.username}','${a.password}',0)>enable</a>]</td>`
+                        else html+=`<td>[<a href=#/ onClick=updateAccount('${source}','${a.username}','${a.password}',1)>disable</a>]</td>`
+                        html+=`</tr>\n`
+                    }
                 }
                 html+=`</table>\n`
                 document.getElementById('content').innerHTML=html
@@ -110,6 +116,19 @@
                         remove: source, 
                         username: username,
                         password: password 
+                    })
+                })
+                sourcesPage()
+            }
+
+            async function updateAccount(source,username,password,disabled) {
+                status=await fetch('/sources',{
+                    method:'POST',
+                    body: new URLSearchParams({ 
+                        update: source, 
+                        username: username,
+                        password: password,
+                        disabled: disabled 
                     })
                 })
                 sourcesPage()
