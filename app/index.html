@@ -22,7 +22,7 @@
                     html+=`</tr>\n`
                     for ([source,accounts] of Object.entries(stat.sources)) {
                         html+=`<tr><th colspan=7>${source}</th>\n`
-                        if (stat.soruces_nstreams) html+=`<td>(${stat.sources_nstreams[source]} streams ${stat.sources_ngroups[source]} groups)</td></tr>\n`
+                        if (stat.sources_nstreams[source]) html+=`<td>(${stat.sources_nstreams[source]} streams ${stat.sources_ngroups[source]} groups)</td></tr>\n`
                         for (a of accounts) html+=`<tr><td></td><td>${a.username}</td><td>${a.password}</td><td>${a.priority}</td><td>${a.active_conns}/${a.max_conns}</td><td>${a.status}</td><td>${a.expires}</td></tr>\n`
                     }
                     html+=`</table>\n`
