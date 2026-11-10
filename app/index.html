@@ -181,15 +181,15 @@
                     html+=`</td></tr>\n`    
                 }
                 html+=`</table></p>\n<datalist id=groups-select>\n`
-                for (group of all_groups) html+=`<option value='${group}'/>`
+                for (group of all_groups) html+=`<option value='${group.replaceAll('|','\\|')}'/>`
                 html+=`</datalist>\n<datalist id=order-select>\n`
-                for (group of Object.keys(data.lineup)) html+=`<option value='${group}'/>`
+                for (group of Object.keys(data.lineup)) html+=`<option value='${group.replaceAll('|','\\|')}'/>`
                 html+=`</datalist>\n<p><table>`
                 config=await fetch('/config').then(function(r) {return r.json()})
                 UPPER=config.upper
                 for (filter_type of filter_types) {
                     html+=`<tr><th colspan=2>${filter_type}</th></tr>`
-                    for (filter_text of config[filter_type]) html+=`<tr><td>[<a href=#/ onClick="updateFilter('${filter_type}','${filter_text}',true)">x</a>]</td><td>${filter_text}</td></tr>`
+                    for (filter_text of config[filter_type]) html+=`<tr><td>[<a href=#/ onClick="updateFilter('${filter_type}','${filter_text.replaceAll('\\','\\\\')}',true)">x</a>]</td><td>${filter_text}</td></tr>`
                     html+=`<tr><td></td><td><input type=text size=40 id=${filter_type} list=${filter_type}-select>`
                     html+=`[<a href=#/ onClick=updateFilter('${filter_type}',document.getElementById('${filter_type}').value,false)>add</a>]<br>&nbsp;</td></tr>`
                 }

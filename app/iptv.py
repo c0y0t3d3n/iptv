@@ -589,13 +589,13 @@ class Data:
             )
 
 
-async def main(url,m3u=None,xml=None):
+async def main(arg,m3u=None,xml=None):
     import logging
     config=Config(os.getenv('CONFIG'))
     env=await config.reload()
     logging.basicConfig(level=config.loglevel)
     data=Data(config)
-    r=parse_url(url)
+    r=parse_url(arg)
     if r:
         url,a=r[0],Account(r[1],r[2])
         await data.refresh_accts({url:[a]})
@@ -612,6 +612,17 @@ async def main(url,m3u=None,xml=None):
                 await data.fetch_xmltv([(url,a)])
                 with open(xml,'w') as f:
                     f.write(await data.build_xmltv())
+    else:
+        config=Config(arg)
+        await config.reload()
+        config.check=0
+        data=Data(config)
+        await data.refresh_accts()
+        for url,accounts in data.accounts.items():
+            for a in accounts:
+                print (url,' '.join(str(s) for s in list(a.data().values())[:-2])) #strip off info and source
+                if not a.active():
+                    await config.remove_account(url,a.username,a.password)
 
 if __name__ == '__main__':
     asyncio.run(main(*sys.argv[1:]))
