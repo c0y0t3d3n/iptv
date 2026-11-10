@@ -157,12 +157,12 @@ class Config:
                     continue
                 for account in source.get('accounts',[]):
                     try:
-                        accounts.setdefault(url,[]).append(
-                            Account(username=account['username'],
-                                    password=account['password'],
-                                    priority=source.get('priority',0),
-                                    disabled=account.get('disabled',False)) #may not be set
-                        )
+                        if 'disabled' not in account:
+                            accounts.setdefault(url,[]).append(
+                                Account(username=account['username'],
+                                        password=account['password'],
+                                        priority=source.get('priority',0))
+                            )
                     except Exception as e:
                         logging.warning('config: %s on source %s account %s',e,url,account)
         return accounts
@@ -250,8 +250,7 @@ class Account:
         self.status=status
         self.expires=datetime.fromtimestamp(int(expires)) if expires else None
         self.info=info
-        self.source=source,
-        self.disabled=disabled
+        self.source=source
 
     def active(self):
         return str(self.status).lower()=='active'
@@ -327,9 +326,9 @@ class Data:
                 if accounts is None: #if no list passed use config accounts
                     accounts=await self.config.get_accounts()
                 self.accounts={}
+                nactive=0
                 # check enabled accounts and return map of source to accounts sorted by free slots
                 for url,accts in accounts.items():
-                    accts=[a for a in accts if not a.disabled] #filter out disabled accounts
                     if self.config.check:
                         accts=random.sample(accts,min(self.config.check,len(accts)))
                     logging.info('refresh: %s',url)
@@ -337,10 +336,15 @@ class Data:
                         ra=await self.check_acct(url,a)
                         logging.debug('refresh: %s',ra.info)
                         self.accounts.setdefault(url,[]).append(ra)
-                        if ra.info and not ra.active(): #account is not active but was fetched, disable it
+                        if ra.active():
+                            nactive+=1
+                        elif ra.info: #account is not active but info was fetched so disable it
                             await self.config.update_account(source=url,username=a.username,password=a.password,disabled=True)
                         await asyncio.sleep(self.config.delay)
-                self.last_refresh=time.time()
+                if nactive: #if any accounts are good, cache is valid
+                    self.last_refresh=time.time()
+                else:
+                    self.last_refresh=0
             else:
                 logging.debug('accounts cached for %ss',int(self.config.cache+self.last_refresh-time.time()))
             #always sort accounts to put active most free slots first (may change while cached)
@@ -366,6 +370,7 @@ class Data:
         # fetch a lineup from each source, filter/modify channel names, and merge linueps
         self.groups_cache={}
         self.streams_cache={}
+        nstreams=0
         for (url,a) in selected_sources:
             logging.info('lineup: fetch from %s',url)
             try:
@@ -375,11 +380,13 @@ class Data:
                 for s in await self.xtream_request(url,a,'get_live_streams'):
                     s['name']=upper(s['name'].replace(',',''))
                     streams.append(s)
+                    nstreams+=1
                     await asyncio.sleep(0)
                 logging.debug('fetch: %s %s groups %s streams',url,len(self.groups_cache[url]),len(self.streams_cache[url]))
             except Exception as e:
                 logging.warning('fetch: %s for %s %s %s',e,url,a.username,a.password)
                 continue
+        return nstreams
 
     async def compile_regex(self,k):
         crex=[]
@@ -595,8 +602,10 @@ class Data:
             if force_rescan or not self.last_rescan or self.last_rescan + self.config.lineup_cache < time.time():
                 #load accounts from config
                 await self.refresh_accts(force_refresh=force_rescan)
-                await self.fetch_lineup(await self.select_sources(check_free=False))
-                self.last_rescan=time.time()
+                if await self.fetch_lineup(await self.select_sources(check_free=False)):
+                    self.last_rescan=time.time()
+                else:
+                    self.last_rescan=0
                 self.xmltv_cache=None #clear cached XMLTV on lineup rescan 
             else:
                 logging.debug('lineup cached for %ss',int(self.config.lineup_cache+self.last_rescan-time.time()))
