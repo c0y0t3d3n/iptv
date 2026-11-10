@@ -143,7 +143,7 @@ class Tuner:
     async def post_status(self,request):
         params=await request.post()
         if params.get('rescan'):
-            return await self.rescan()
+            return await self.rescan() #force full rescan
         pid=params.get('kill')
         if pid:
             pid=int(pid)
@@ -159,7 +159,7 @@ class Tuner:
             await self.config.update(
                 **dict((k,v if len(v) else None) for k,v in params.items())
                 )
-            await self.data.rescan()
+            await self.data.rescan() #rebuild lineup only
         except Exception as e:
                 logging.exception(e)
                 return web.Response(text=str(e),status=400)
@@ -177,7 +177,6 @@ class Tuner:
                 await self.config.remove_account(**params)
             elif 'update' in params:
                 await self.config.update_source(**params)
-            await self.data.rescan()
         except Exception as e:
                 logging.exception(e)
                 return web.Response(text=str(e),status=400)
