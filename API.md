@@ -6,7 +6,8 @@
 |`GET /config`|<br>`defaults=0`|get current config<br>(without default values)|
 |`POST /config`|`<key>=<value>`<br>`<filter_type>=<filter_text>`<br>`remove=1`|set `key` to `value`<br>add `filter_text` to list `filter_type`<br>remove `key` from config or `filter_text` from `filter_type`|
 |`GET /log`||get logs|
-|`GET /lineup`||get lineup|
+|`GET /lineup`||get filtered lineup|
+|`GET /lineup`|`source=<source>`|get unfiltered lineup of `source`|
 |`GET /sources`||get sources|
 |`POST /sources`|`add=<source>&username=<username>&password=<password>`<br>|add account `username`/`password` to source `source`|
 |`POST /sources`|`remove=<source>&username=<username>&password=<password>`|remove account matching `username`/`password` from source `source`| 
