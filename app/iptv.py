@@ -326,7 +326,7 @@ class Data:
                 if accounts is None: #if no list passed use config accounts
                     accounts=await self.config.get_accounts()
                 self.accounts={}
-                nactive=0
+                active=0
                 # check enabled accounts and return map of source to accounts sorted by free slots
                 for url,accts in accounts.items():
                     if self.config.check:
@@ -337,19 +337,26 @@ class Data:
                         logging.debug('refresh: %s',ra.info)
                         self.accounts.setdefault(url,[]).append(ra)
                         if ra.active():
-                            nactive+=1
+                            active+=1
                         elif ra.info: #account is not active but info was fetched so disable it
                             await self.config.update_account(source=url,username=a.username,password=a.password,disabled=True)
                         await asyncio.sleep(self.config.delay)
-                if nactive: #if any accounts are good, cache is valid
+                if active: #if any accounts are good, cache is valid
                     self.last_refresh=time.time()
                 else:
+                    logging.warning('refresh: no active sources')
                     self.last_refresh=0
             else:
-                logging.debug('accounts cached for %ss',int(self.config.cache+self.last_refresh-time.time()))
+                logging.debug('refresh: accounts cached for %ss',int(self.config.cache+self.last_refresh-time.time()))
             #always sort accounts to put active most free slots first (may change while cached)
-            for url,accts in self.accounts.items():
-                self.accounts[url].sort(key=lambda a:(a.active(), a.available()), reverse=True)
+            available=0
+            for accts in self.accounts.values():
+                accts.sort(key=lambda a:(a.active(), a.available()), reverse=True)
+                available+=any(a.available()>0 for a in accts)
+            if not available:
+                logging.warning('refresh: no available sources')
+                self.last_refresh=0
+            return self.accounts
 
     async def select_sources(self,source_list=None,check_free=True):
         # return list of url, acct by highest priority and most free slots (if url in source list)
