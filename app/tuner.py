@@ -111,7 +111,11 @@ class Tuner:
 
     async def get_lineup(self,request,flat=False):
         data = await self.data.rescan()
-        return web.json_response(list(self.data.lineup.values()) if flat else data)
+        source = request.query.get('source')
+        if source:
+            return web.json_response(dict(groups=self.data.groups_cache[source],streams=self.data.streams_cache[source]))
+        else:        
+            return web.json_response(list(self.data.lineup.values()) if flat else data)
 
     async def get_config(self,request):
         return web.json_response(await self.config.get_config(**dict((k,int(v)) for k,v in request.query.items())))

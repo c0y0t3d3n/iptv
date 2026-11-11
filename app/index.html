@@ -99,7 +99,7 @@
             }
 
             async function updateSource(source,priority,disabled) {
-                status=await fetch('/sources',{
+                await fetch('/sources',{
                     method:'POST',
                     body: new URLSearchParams({ 
                         update: source, 
@@ -111,7 +111,7 @@
             }
 
             async function removeAccount(source,username,password) {
-                status=await fetch('/sources',{
+                await fetch('/sources',{
                     method:'POST',
                     body: new URLSearchParams({ 
                         remove: source, 
@@ -123,7 +123,7 @@
             }
 
             async function updateAccount(source,username,password,disabled) {
-                status=await fetch('/sources',{
+                await fetch('/sources',{
                     method:'POST',
                     body: new URLSearchParams({ 
                         update: source, 
@@ -136,7 +136,7 @@
             }
 
             async function addAccount(add) {
-                status=await fetch('/sources',{
+                await fetch('/sources',{
                     method:'POST',
                     body: new URLSearchParams({ 
                         add: add, 
@@ -191,7 +191,7 @@
                 html+=`</table></p>\n<p><table>\n`
                 all_groups=[]
                 for ([source,groups] of Object.entries(data.groups)) {
-                    html+=`<tr><th>${source}</th><td>`
+                    html+=`<tr><th><a href=#/ onClick=sourceLineup('${source}')>${source}</a></th><td>`
                     sg=[]
                     for (group of groups) {
                         all_groups.push(group)
@@ -221,11 +221,22 @@
             async function updateFilter(filter_type,filter_text,remove) {
                 params=remove?{'remove':true}:{}
                 params[filter_type]=UPPER?filter_text.toUpperCase():filter_text
-                status=await fetch('/config',{
+                await fetch('/config',{
                     method:'POST',
                     body: new URLSearchParams(params)
                 })
                 lineupPage()
+            }
+
+            async function sourceLineup(source) {
+                data=await fetch('/lineup?source='+source).then(function(r) {return r.json()})
+                html=`<table>`
+                for ([gid,group] of Object.entries(data.groups)){
+                    html+=`<tr><th>${group}</th></tr>\n`
+                    for (stream of data.streams) if (stream.category_id == gid) html+=`<tr><td>${stream.name}</tr></td>\n`
+                }
+                html+=`</table>`
+                document.getElementById('content').innerHTML=html
             }
 
             async function onLoad() {
