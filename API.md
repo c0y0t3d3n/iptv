@@ -11,7 +11,7 @@
 |`POST /sources`|`add=<source>&username=<username>&password=<password>`<br>|add account `username`/`password` to source `source`|
 |`POST /sources`|`remove=<source>&username=<username>&password=<password>`|remove account matching `username`/`password` from source `source`| 
 |`POST /sources`|`update=<source>&disabled=1`<br>`update=<source>&disabled=0`|disable `source`<br>enable `source`| 
-|`POST /sources`|`update=<source>&priority=<pri>`|set `source` priority to `pri`| 
+|`POST /sources`|`update=<source>&username=<username>&password=<password>&disabled=1`<br>`update=<source>&&username=<username>&password=<password>disabled=0`|disable account `source`/`username`/`password`<br>enable  account `source`/`username`/`password`| 
 |`GET /m3u`||get M3U playlist|
 |`GET /xmltv`||get EPG data|
 |`GET /stream/<id>`|`direct=0`|proxy stream `id` from best available source and serve MPEGTS|
