@@ -377,33 +377,33 @@ class Data:
         # fetch a lineup from each source, filter/modify channel names, and merge linueps
         self.groups_cache={}
         self.streams_cache={}
-        nstreams=0
+        sources_fetched=set()
         for (url,a) in selected_sources:
             logging.info('lineup: fetch from %s',url)
             try:
-                #fetch from selected source account, strip commas as plex does not like them and we can't filter on them
+                #fetch from selected source account, strip commas as plex does not like them
                 self.groups_cache[url]=dict( (e['category_id'],upper(e['category_name'].replace(',',''))) for e in await self.xtream_request(url,a,'get_live_categories') )
                 streams=self.streams_cache.setdefault(url,[])
                 for s in await self.xtream_request(url,a,'get_live_streams'):
                     s['name']=upper(s['name'].replace(',',''))
                     streams.append(s)
-                    nstreams+=1
+                    sources_fetched.add(url)
                     await asyncio.sleep(0)
                 logging.debug('fetch: %s %s groups %s streams',url,len(self.groups_cache[url]),len(self.streams_cache[url]))
             except Exception as e:
                 logging.warning('fetch: %s for %s %s %s',e,url,a.username,a.password)
                 continue
-        return nstreams
+        return sources_fetched
 
     async def compile_regex(self,k):
         crex=[]
         for p in getattr(self.config,k):
             try:
                 p,s=p.split('=',1) if '=' in p else (p,'')
-                logging.debug('config: compiling %s=%s%s',k,p,'='+s if s else '')
+                logging.debug('lineup: compiling %s=%s%s',k,p,'='+s if s else '')
                 crex.append((re.compile(p),s))
             except Exception as e:
-                logging.warning('config: %s compiling %s=%s%s',e,k,p,'='+s if s else '')
+                logging.warning('lineup: %s compiling %s=%s%s',e,k,p,'='+s if s else '')
         await asyncio.sleep(0)
         return crex
 
@@ -609,13 +609,17 @@ class Data:
             if force_rescan or not self.last_rescan or self.last_rescan + self.config.lineup_cache < time.time():
                 #load accounts from config
                 await self.refresh_accts(force_refresh=force_rescan)
-                if await self.fetch_lineup(await self.select_sources(check_free=False)):
+                #get lineups
+                fetched = await self.fetch_lineup(await self.select_sources(check_free=False))
+                #did we fetch the minimum sources? 
+                if fetched and len(fetched) >= self.config.min_sources:
                     self.last_rescan=time.time()
                 else:
+                    logging.warning('rescan: some lineups could not be fetched')
                     self.last_rescan=0
                 self.xmltv_cache=None #clear cached XMLTV on lineup rescan 
             else:
-                logging.debug('lineup cached for %ss',int(self.config.lineup_cache+self.last_rescan-time.time()))
+                logging.debug('rescan: lineup cached for %ss',int(self.config.lineup_cache+self.last_rescan-time.time()))
             #build lineup
             lineup = await self.build_lineup()
         #get xmltv if requested
