@@ -232,8 +232,8 @@
                 data=await fetch('/lineup?source='+source).then(function(r) {return r.json()})
                 html=`<table>`
                 for ([gid,group] of Object.entries(data.groups)){
-                    html+=`<tr><th>${group}</th></tr>\n`
-                    for (stream of data.streams) if (stream.category_id == gid) html+=`<tr><td>${stream.name}</tr></td>\n`
+                    html+=`<tr></tr><tr><th>${group}</th></tr>\n`
+                    for (stream of data.streams) if (stream.category_id == gid) html+=`<tr><td>${stream.name}</td><td>${stream.epg_channel_id}</td></tr>\n`
                 }
                 html+=`</table>`
                 document.getElementById('content').innerHTML=html

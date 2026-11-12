@@ -414,6 +414,8 @@ class Data:
         groups={}
         lineup={}
         nsources=0
+        map_name_id={}
+        map_id_name={}
         #get the compiled patterns. Each will be (Pattern,replace) even if replace is unused
         re_group_rename=await self.compile_regex('group_rename')
         re_groups=await self.compile_regex('groups')
@@ -423,8 +425,11 @@ class Data:
         re_replace=await self.compile_regex('replace')
         re_order=await self.compile_regex('order')
         #get the manual mappings
-        map_name_id=dict(p.split('=',1) for p in self.config.map)
-        map_id_name=dict((v.lower(),k) for k,v in map_name_id.items())
+        try:
+            map_name_id=dict(p.split('=',1) for p in self.config.map)
+            map_id_name=dict((v.lower(),k) for k,v in map_name_id.items())
+        except Exception as e:
+            logging.warning('lineup: %s in mappings',e)
         try:
             for url in self.groups_cache.keys():
                 self.source_groups[url]={}
