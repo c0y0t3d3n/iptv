@@ -326,7 +326,6 @@ class Data:
                 if accounts is None: #if no list passed use config accounts
                     accounts=await self.config.get_accounts()
                 self.accounts={}
-                active=0
                 # check enabled accounts and return map of source to accounts sorted by free slots
                 for url,accts in accounts.items():
                     if self.config.check:
@@ -336,42 +335,39 @@ class Data:
                         ra=await self.check_acct(url,a)
                         logging.debug('refresh: %s',ra.info)
                         self.accounts.setdefault(url,[]).append(ra)
-                        if ra.active():
-                            active+=1
-                        elif ra.info: #account is not active but info was fetched so disable it
+                        if ra.info and not ra.active(): #account was fetched and is not active, disable it.
                             await self.config.update_account(source=url,username=a.username,password=a.password,disabled=True)
                         await asyncio.sleep(self.config.delay)
-                if active: #if any accounts are good, cache is valid
-                    self.last_refresh=time.time()
-                else:
-                    logging.warning('refresh: no active sources')
-                    self.last_refresh=0
+                self.last_refresh=time.time()
             else:
                 logging.debug('refresh: accounts cached for %ss',int(self.config.cache+self.last_refresh-time.time()))
             #always sort accounts to put active most free slots first (may change while cached)
-            available=0
             for accts in self.accounts.values():
                 accts.sort(key=lambda a:(a.active(), a.available()), reverse=True)
-                available+=any(a.available()>0 for a in accts)
-            if not available:
-                logging.warning('refresh: no available sources')
-                self.last_refresh=0
             return self.accounts
 
-    async def select_sources(self,source_list=None,check_free=True):
+    async def select_sources(self,source_list=None,check_free=True,force_refresh=False):
         # return list of url, acct by highest priority and most free slots (if url in source list)
         # first account per source will be most free slots, so filter to sources with any active accouhts and optinally any free slots
         # then sort by priority,-available to prefer highest priority sources even if less free slots
-        async with self.accounts_lock:
-            selected_sources=sorted(
-                ( (url,accts[0]) for url,accts in self.accounts.items() \
-                    if (not source_list or url in source_list) \
-                    and accts[0].active() \
-                    and (not check_free or accts[0].available() > 0) ),
-                key=lambda sa:(sa[1].priority,-sa[1].available())
-            )
-            logging.debug('select: %s',selected_sources)
-            return selected_sources
+        retry=False
+        while True:
+            await self.refresh_accts(force_refresh=retry or force_refresh)
+            sources=sorted(
+                    ( (url,accts[0]) for url,accts in self.accounts.items() \
+                        if (not source_list or url in source_list) \
+                        and accts[0].active() \
+                        and (not check_free or accts[0].available() > 0) ),
+                    key=lambda sa:(sa[1].priority,-sa[1].available())
+                )
+            logging.debug('select: %s',sources)
+            if not sources:
+                log=logging.error if retry else logging.warning
+                log('select: %s unavailable%s',','.join(source_list) if source_list else 'all sources',', retrying' if not retry else '')
+            if sources or retry:
+                break
+            retry=True #try again and force refresh
+        return sources        
 
     async def fetch_lineup(self,selected_sources):
         # fetch a lineup from each source, filter/modify channel names, and merge linueps
@@ -612,10 +608,8 @@ class Data:
         async with self.lineup_lock:
             #refresh account status and lineup if fetch=True, or cache expired
             if force_rescan or not self.last_rescan or self.last_rescan + self.config.lineup_cache < time.time():
-                #load accounts from config
-                await self.refresh_accts(force_refresh=force_rescan)
                 #get lineups
-                fetched = await self.fetch_lineup(await self.select_sources(check_free=False))
+                fetched = await self.fetch_lineup(await self.select_sources(check_free=False,force_refresh=force_rescan))
                 #did we fetch the minimum sources? 
                 if fetched and len(fetched) >= self.config.min_sources:
                     self.last_rescan=time.time()

@@ -23,14 +23,11 @@ class Tuner:
         #serve stream URL or stream data
         k=unquote(request.match_info['stream'])
         logging.debug('stream: %s request %s'%(request.remote, k))
-        if k in self.data.lineup:
-            # send the URL to plex
+        l=self.data.lineup.get(k)
+        if l:
             try:
-                await self.data.refresh_accts()
-                l=self.data.lineup[k]
-                #get the best source/account for this channel
-                sources=await self.data.select_sources(list(l['sources'].keys()))
-                (source,acct)=sources[0]
+                #get the first source that can provide this stream
+                (source,acct)=(await self.data.select_sources(list(l['sources'].keys())))[0]
                 #format the stream URL
                 url=self.config.format % (acct.info['server_info']['url'], 
                         acct.info['server_info']['port'], acct.username, acct.password, 
