@@ -188,7 +188,7 @@ class Tuner:
 
     async def get_m3u(self,request):
         lineup = await self.data.rescan()
-        return web.Response(text='\n'.join(await self.data.build_m3u(lineup))) if lineup else web.Response(status=503)
+        return web.Response(text='\n'.join(await self.data.build_m3u(self.data.lineup))) if lineup else web.Response(status=503)
 
     async def get_xmltv(self,request):
         xmltv = await self.data.rescan(get_xmltv=True)
