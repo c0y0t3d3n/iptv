@@ -29,12 +29,12 @@ All match patterns and replace strings are by default uppercased. This generally
 `streams:` regex patterns of streams to add if match.\
 `streams_exclude:` will remove streams if match.
 
-`map:` To override the EPG ID for a channel, specify `NAME=epg_id`. This is a bidirectional mapping: all channels with `NAME` will be mapped to `epg_id` and all channels with `epgid` will be renamed to `NAME`.
-
 `rename:` regex patterns to strip or replace in stream names. `pattern=string` will replace pattern with string. This is applied after stream selection.
 
 `replace:` replace any streams with the same name if a stream matching name+`pattern` exists.\
 Example: `UHD$` will turn 'ABC UHD' into 'ABC', removing any streams named 'ABC', but only if 'ABC UHD' exists. `^FHD: ` will do the same for 'FHD: ' at the start of the name.
+
+`map:` To override the EPG ID for a channel, specify `NAME=epg_id`. This is a bidirectional mapping: all channels with `NAME` will be mapped to `epg_id` and all channels with `epgid` will be renamed to `NAME`.
 
 `order:` order the groups in the lineup. Groups matching the first pattern will be followed by groups matching the next and so on. Groups that do not match any pattern will be placed last.
 
