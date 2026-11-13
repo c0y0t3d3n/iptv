@@ -55,9 +55,9 @@ class Config:
         groups=(list,[]),
         streams=(list,[]),
         streams_exclude=(list,[]),
-        map=(list,[]),
         rename=(list,[]),
         replace=(list,[]),
+        map=(list,[]),
         order=(list,[]),
         user_agent=(str,''),
         format=(str,'http://%s:%s/%s/%s/%s'),
@@ -323,6 +323,7 @@ class Data:
         #refresh status of accounts from source if not cached
         async with self.accounts_lock:
             if force_refresh or not self.last_refresh or self.last_refresh + self.config.cache < time.time():
+                self.last_refresh=0
                 if accounts is None: #if no list passed use config accounts
                     accounts=await self.config.get_accounts()
                 self.accounts={}
@@ -608,6 +609,7 @@ class Data:
         async with self.lineup_lock:
             #refresh account status and lineup if fetch=True, or cache expired
             if force_rescan or not self.last_rescan or self.last_rescan + self.config.lineup_cache < time.time():
+                self.last_rescan=0
                 #get lineups
                 fetched = await self.fetch_lineup(await self.select_sources(check_free=False,force_refresh=force_rescan))
                 #did we fetch the minimum sources? 
@@ -615,7 +617,6 @@ class Data:
                     self.last_rescan=time.time()
                 else:
                     logging.warning('rescan: some lineups could not be fetched')
-                    self.last_rescan=0
                 self.xmltv_cache=None #clear cached XMLTV on lineup rescan 
             else:
                 logging.debug('rescan: lineup cached for %ss',int(self.config.lineup_cache+self.last_rescan-time.time()))
