@@ -541,7 +541,7 @@ class Data:
         return self.group_lineup
 
     async def fetch_xmltv(self,selected_sources):
-        self.xmltv_cache={'data':{},'channels':{},'programs':[]}
+        self.xmltv_cache={'data':{},'channels':{},'programs':{}}
         for (url,a) in selected_sources:
             logging.info('xmltv: fetch from %s',url)
             try:
@@ -562,13 +562,13 @@ class Data:
                 for p in xmltv.read_programmes(xmlin):
                     if p['channel']:
                         p['channel'] = p['channel'].lower()
-                        self.xmltv_cache['programs'].append(p)
+                        self.xmltv_cache['programs'].setdefault(p['channel'],{})[p['start']]=p
                         n+=1
                         await asyncio.sleep(0)
                 logging.debug('xmltv: fetched %s programs from %s'%(n,url))
             except Exception as e:
                 logging.warning('xmltv: %s for %s %s %s',e,url,a.username,a.password)
-
+            
     async def build_xmltv(self):
         async with self.lineup_lock:
             ids=set(l['GuideID'] for l in self.lineup.values()) #EPG ID of channels in lineup
@@ -580,13 +580,10 @@ class Data:
             if c:
                 nc+=1
                 writer.addChannel(c)
-                await asyncio.sleep(0)
-        #add programs for lineup channels
-        np=0
-        for p in self.xmltv_cache['programs']:
-            if p['channel'] in ids:
-                np+=1
-                writer.addProgramme(p)
+                #add programs for lineup channels
+                for p in self.xmltv_cache['programs'].get(i,{}).values():
+                    np+=1
+                    writer.addProgramme(p)
                 await asyncio.sleep(0)
         #generate XML
         xmlout=BytesIO()

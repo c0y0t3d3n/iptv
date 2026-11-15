@@ -134,7 +134,8 @@ class Tuner:
             'lineup_ngroups':len(self.data.group_lineup) if self.data.lineup else 0,
             'lineup_nstreams':len(self.data.lineup) if self.data.lineup else 0,
             'lineup_cached':max(0,int(self.config.lineup_cache+self.data.last_rescan-time.time())),
-            'xmltv_cached':max(0,int(self.config.lineup_cache+self.data.last_rescan-time.time()) if self.data.xmltv_cache else 0)
+            'xmltv_channels':len(self.data.xmltv_cache['channels']) if self.data.xmltv_cache else 0,
+            'xmltv_programs':sum(len(v) for v in self.data.xmltv_cache['programs'].values()) if self.data.xmltv_cache else 0
         })
 
     async def rescan(self,*args):

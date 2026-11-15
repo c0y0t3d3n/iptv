@@ -15,8 +15,8 @@
                 clearTimeout(timer)
 		        stat = await fetch('/status').then((r) => r.json())
                 if (stat) {
-                    if (stat.lineup_nstreams) document.getElementById('nlineup').innerHTML=`(${stat.lineup_nstreams} streams ${stat.lineup_ngroups} groups)`
-                    else document.getElementById('nstreams').innerHTML=``
+                    if (stat.lineup_cached) document.getElementById('lineup_cached').innerHTML= `(cached for ${stat.lineup_cached}s)`
+                    else document.getElementById('lineup_cached').innerHTML=``
                     html=``
                     if (Object.entries(stat.sources).length) {
                         html+=`<table><tr><th></th><th>user</th><th>pass</th><th>pri</th><th colspan=2>status</th><th>expires</th>`
@@ -31,11 +31,11 @@
                     }
                     m3u=`${window.location.origin}/m3u`
                     html+=`<p><table><tr><th>M3U</th><td><a href='${m3u}'>${m3u}</a></td>`
-                    if (stat.lineup_cached) html+=`<td>(cached for ${stat.lineup_cached}s)</td>`
+                    if (stat.lineup_nstreams) html+=`<td>(${stat.lineup_ngroups} groups ${stat.lineup_nstreams} streams)</td>`
                     html+=`</tr>\n`
                     xmltv=`${window.location.origin}/xmltv`
                     html+=`<tr><th>XMLTV</th><td><a href='${xmltv}'>${xmltv}</a></td>`
-                    if (stat.xmltv_cached) html+=`<td>(cached for ${stat.xmltv_cached}s)</td>`
+                    if (stat.xmltv_channels) html+=`<td>(${stat.xmltv_channels} channels ${stat.xmltv_programs} programs)</td>`
                     html+=`</tr></table></p>\n`
                     if (Object.entries(stat.procs).length){
                         html+=`<p><table><tr><th></th><th>pid</th><th>client</th><th>stream</th><th>cmd</th>\n`
@@ -81,18 +81,19 @@
                 clearTimeout(timer)
                 currentPage=sourcesPage
                 sources=await fetch('/sources').then((r) => r.json())
-                html=`<p><input type=text size=80 id=add>[<a href=#/ onClick=addAccount(document.getElementById('add').value)>add</a>]</p>\n<table><tr><th></th><th colspan=2>source/accounts</th><th>priority</th></tr>\n`
+                html=`<p><input type=text size=80 id=add>[<a href=#/ onClick=addAccount(document.getElementById('add').value)>add</a>]</p>\n<table><tr><th colspan=4>source/accounts</th><th>priority</th></tr>\n`
                 for ([source,source_data] of Object.entries(sources)){
-                    html+=`<tr><td></td><th colspan=2>${source_data.disabled?'<s>':''}${source}${source_data.disabled?'</s>':''}</th><td>`
-                    if (source_data.disabled) html+=`[<a href=#/ onClick=updateSource('${source}',${source_data.priority},0)>enable</a>]`
-                    else html+=`[<a href=#/ onClick=updateSource('${source}',${Math.max(0,source_data.priority-1)},0)>-</a>]${source_data.priority}[<a href=#/ onClick=updateSource('${source}',${source_data.priority+1},0)>+</a>][<a href=#/ onClick=updateSource('${source}',${source_data.priority},1)>disable</a>]`
-                    html+=`</td></tr>\n`
+                    html+=`<tr><td>`
+                    if (source_data.disabled) html+=`[<a href=#/ onClick=updateSource('${source}',${source_data.priority},0)>e</a>]`
+                    else html+=`[<a href=#/ onClick=updateSource('${source}',${source_data.priority},1)>d</a>]`
+                    html+=`</td><th colspan=3>${source_data.disabled?'<s>':''}${source}${source_data.disabled?'</s>':''}</th>`
+                    html+=`<td>[<a href=#/ onClick=updateSource('${source}',${Math.max(0,source_data.priority-1)},0)>-</a>]${source_data.priority}[<a href=#/ onClick=updateSource('${source}',${source_data.priority+1},0)>+</a>]</td></tr>\n`
                     for (a of source_data.accounts) {
-                        html+=`<tr><td>[<a href=#/ onClick=removeAccount('${source}','${a.username}','${a.password}')>x</a>]</td><td>`
-                        html+=`${a.disabled?'<s>':''}${a.username}${a.disabled?'</s>':''}</td><td>${a.disabled?'<s>':''}${a.password}${a.disabled?'</s>':''}</td>`
-                        if (a.disabled) html+=`<td>[<a href=#/ onClick=updateAccount('${source}','${a.username}','${a.password}',0)>enable</a>]</td>`
-                        else html+=`<td>[<a href=#/ onClick=updateAccount('${source}','${a.username}','${a.password}',1)>disable</a>]</td>`
-                        html+=`</tr>\n`
+                        html+='<tr><td>'
+                        if (a.disabled) html+=`[<a href=#/ onClick=updateAccount('${source}','${a.username}','${a.password}',0)>e</a>]`
+                        else html+=`[<a href=#/ onClick=updateAccount('${source}','${a.username}','${a.password}',1)>d</a>]`
+                        html+=`</td><td>[<a href=#/ onClick=removeAccount('${source}','${a.username}','${a.password}')>x</a>]</td>`
+                        html+=`</td><td>${a.disabled?'<s>':''}${a.username}${a.disabled?'</s>':''}</td><td>${a.disabled?'<s>':''}${a.password}${a.disabled?'</s>':''}</td></tr>\n`
                     }
                 }
                 html+=`</table>\n`
@@ -253,7 +254,7 @@
             <th>[<a href=#/ onClick=logPage()>log</a>]</th>
             <th>[<a href=#/ onClick=sourcesPage()>sources</a>]</th>
             <th>[<a href=#/ onClick=configPage()>config</a>]</th>
-            <th>[<a href=#/ onClick=lineupPage()>lineup</a>]</th><td id=nlineup></td>
+            <th>[<a href=#/ onClick=lineupPage()>lineup</a>]</th><td id=lineup_cached></td>
 	    </tr></table></p>
         <p id="content"></p>
     </body>
