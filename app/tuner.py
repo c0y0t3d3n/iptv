@@ -25,68 +25,76 @@ class Tuner:
         logging.debug('stream: %s request %s'%(request.remote, k))
         l=self.data.lineup.get(k)
         if l:
-            try:
-                #get the first source that can provide this stream
-                (source,acct)=(await self.data.select_sources(list(l['sources'].keys())))[0]
-                #format the stream URL
-                url=self.config.format % (acct.info['server_info']['url'], 
-                        acct.info['server_info']['port'], acct.username, acct.password, 
-                        l['sources'][source])
-                direct=request.query.get('direct')
-                if direct is None:
-                    direct=self.config.direct
-                if direct:
-                    #redirect client to stream
-                    logging.info('stream: %s %s redirected to %s', request.remote, k, url)
-                    return web.Response(status=302,headers={'Location':url})
-                else:  
-                    logging.info('stream: %s %s from %s'%(request.remote, k, url))
-                    # remux with ffmpeg
-                    args = self.config.cmd % url
-                    logging.debug('stream: %s %s exec %s', request.remote, k, args)
-                    try:
-                        proc = await asyncio.create_subprocess_exec(*args.split(), stdout=asyncio.subprocess.PIPE, limit=self.config.buffer)
-                        logging.info('stream: %s %s pid %s started', request.remote, k, proc.pid)
-                        self.procs[proc.pid]=(request.remote,k,args)
-                    except Exception as e:
-                        logging.exception(e)
-                        return web.Response(status=500,text=str(e))
-                    try:
-                        response=web.StreamResponse()
-                        await response.prepare(request)
-                        acct.active_conns+=1 #update cached account
-                        while True:
-                            data = await proc.stdout.read(self.config.buffer)
-                            if not data: # cmd exited, source dropped the stream
-                                break
-                            #logging.debug('stream: %s %s pid %s proxied %s bytes', request.remote, k, proc.pid, len(data))
-                            await response.write(data)
-                        # cmd exited likely source dropped the stream
-                        rc=await proc.wait()
-                        logging.warning('stream: %s %s pid %s exited (%s)',request.remote, k, proc.pid, rc)
-                        if self.config.auto_pri:
-                            # drop priority for this source on fail, will be reset on refresh
-                            for sa in self.data.accounts[acct.source]:
-                                sa.priority+=1
-                        else:
-                            self.data.last_refresh=0 #expire cache if not adjusting priority
-                    except OSError:
-                        # only decrement on normal exit. will help skip overloaded cached accounts. 
-                        acct.active_conns-=1
-                        logging.debug('stream: %s %s pid %s disconnected',request.remote, k, proc.pid)
-                    except Exception as e:
-                        logging.exception(e)
-                    try:
-                        proc.kill()
-                    except:
-                        pass #it gone
-                    logging.info('stream: %s %s pid %s stopped', request.remote, k, proc.pid)
-                    del self.procs[proc.pid]
-                    return response
-            except Exception as e: #no source available for this stream
-                logging.debug('stream: %s %s',k,e)
-                self.data.last_refresh=0 #expire cache if nothing usable
-                return web.Response(status=503,text=k)
+            response=None
+            retry=True
+            while retry: #keep client connected on stream failure unless stream was killed
+                try:
+                    #get the first source that can provide this stream
+                    (source,acct)=(await self.data.select_sources(list(l['sources'].keys())))[0]
+                    #format the stream URL
+                    url=self.config.format % (acct.info['server_info']['url'], 
+                            acct.info['server_info']['port'], acct.username, acct.password, 
+                            l['sources'][source])
+                    direct=request.query.get('direct')
+                    if direct is None:
+                        direct=self.config.direct
+                    if direct:
+                        #redirect client to stream
+                        logging.info('stream: %s %s redirected to %s', request.remote, k, url)
+                        return web.Response(status=302,headers={'Location':url})
+                    else:  
+                        if not response:
+                            logging.info('stream: %s %s started'%(request.remote, k))
+                        # remux with ffmpeg
+                        args = self.config.cmd % url
+                        logging.debug('stream: %s %s exec %s', request.remote, k, args)
+                        try:
+                            proc = await asyncio.create_subprocess_exec(*args.split(), stdout=asyncio.subprocess.PIPE, limit=self.config.buffer)
+                            logging.info('stream: %s %s pid %s for %s', request.remote, k, proc.pid, url)
+                            self.procs[proc.pid]=(request.remote,k,args)
+                        except Exception as e:
+                            logging.exception(e)
+                            return web.Response(status=500,text=str(e))
+                        try:
+                            if not response: #start stream to client, do not do this on retry
+                                response=web.StreamResponse()
+                                await response.prepare(request)
+                            acct.active_conns+=1 #update cached account
+                            while True:
+                                data = await proc.stdout.read(self.config.buffer)
+                                if not data: # cmd exited, source dropped the stream
+                                    break
+                                #logging.debug('stream: %s %s pid %s proxied %s bytes', request.remote, k, proc.pid, len(data))
+                                await response.write(data)
+                            # cmd exited likely source dropped the stream
+                            rc=await proc.wait()
+                            if rc == -9: #stream was killed, do not retry
+                                retry=False
+                            logging.warning('stream: %s %s pid %s exited (%s)',request.remote, k, proc.pid, rc)
+                            if self.config.auto_pri:
+                                # drop priority for this source on fail, will be reset on refresh
+                                for sa in self.data.accounts[acct.source]:
+                                    sa.priority+=1
+                            else:
+                                self.data.last_refresh=0 #expire cache if not adjusting priority
+                        except OSError:
+                            # only decrement on normal exit. will help skip overloaded cached accounts. 
+                            acct.active_conns-=1
+                            logging.debug('stream: %s %s pid %s disconnected',request.remote, k, proc.pid)
+                            retry=False
+                        except Exception as e:
+                            logging.exception(e)
+                        try:
+                            proc.kill()
+                        except:
+                            pass #it gone
+                        del self.procs[proc.pid]
+                except Exception as e: #no source available for this stream
+                    logging.debug('stream: %s %s',k,e)
+                    self.data.last_refresh=0 #expire cache if nothing usable
+                    return web.Response(status=503,text=k)
+            logging.info('stream: %s %s stopped', request.remote, k)
+            return response # end streaming request handler if not retrying
         else:
             return web.Response(status=404,text=k)
 
