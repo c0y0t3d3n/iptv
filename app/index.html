@@ -4,20 +4,62 @@
         <style>
             body{font-family:monospace}
             th{text-align:left}
+            /* Style the tab */
+            .tab {
+            overflow: hidden;
+            border: 1px solid #ccc;
+            background-color: #f1f1f1;
+            }
+
+            /* Style the buttons that are used to open the tab content */
+            .tab button {
+            font-family:monospace;
+            background-color: inherit;
+            float: left;
+            border: none;
+            outline: none;
+            cursor: pointer;
+            padding: 14px 16px;
+            transition: 0.3s;
+            }
+
+            /* Change background color of buttons on hover */
+            .tab button:hover {
+            background-color: #ddd;
+            }
+
+            /* Create an active/current tablink class */
+            .tab button.active {
+            background-color: #ccc;
+            }
+
+            /* Style the tab content */
+            .tabcontent {
+            display: none;
+            padding: 6px 12px;
+            border: 1px solid #ccc;
+            border-top: none;
+            }
         </style>
         <script>
             const filter_types=['group_rename','groups','streams','streams_exclude','rename','replace','map','order']
-            var currentPage
             var timer
+            var scanning = false
             var UPPER
 
-            async function getState() {
+            async function load_status() {
                 clearTimeout(timer)
 		        stat = await fetch('/status').then((r) => r.json())
+                html=''
                 if (stat) {
-                    if (stat.lineup_cached) document.getElementById('lineup_cached').innerHTML= `(cached for ${stat.lineup_cached}s)`
-                    else document.getElementById('lineup_cached').innerHTML=``
-                    html=``
+                    if (scanning) html+=`<p>rescanning...`
+                    else {
+                        html=`<p><button onclick=rescan()>rescan</button>&nbsp;`
+                        if (stat.lineup_nstreams) html+=`${stat.lineup_ngroups} groups ${stat.lineup_nstreams} streams`
+                            if (stat.lineup_cached) html+= ` cached for ${stat.lineup_cached}s`
+                        else html+=`no lineup available`
+                    }
+                    html+=`</p>\n<p>`
                     if (Object.entries(stat.sources).length) {
                         html+=`<table><tr><th></th><th>user</th><th>pass</th><th>pri</th><th colspan=2>status</th><th>expires</th>`
                         if (stat.sources_cached) html+=`<td>(cached for ${stat.sources_cached}s)</td>`
@@ -29,9 +71,9 @@
                         }
                         html+=`</table>\n`
                     }
+                    html+='</p>\n'
                     m3u=`${window.location.origin}/m3u`
                     html+=`<p><table><tr><th>M3U</th><td><a href='${m3u}'>${m3u}</a></td>`
-                    if (stat.lineup_nstreams) html+=`<td>(${stat.lineup_ngroups} groups ${stat.lineup_nstreams} streams)</td>`
                     html+=`</tr>\n`
                     xmltv=`${window.location.origin}/xmltv`
                     html+=`<tr><th>XMLTV</th><td><a href='${xmltv}'>${xmltv}</a></td>`
@@ -39,29 +81,21 @@
                     html+=`</tr></table></p>\n`
                     if (Object.entries(stat.procs).length){
                         html+=`<p><table><tr><th></th><th>pid</th><th>client</th><th>stream</th><th>cmd</th>\n`
-                        for ([pid,p] of Object.entries(stat.procs)) html+=`<tr><td>[<a href=#/ onClick=killProc(${pid})>x</a>]</td><td>${pid}</td><td>${p.client}</td><td>${p.stream}</td><td>${p.cmd}</td></tr>\n`
+                        for ([pid,p] of Object.entries(stat.procs)) html+=`<tr><td>[<a href=#/ onclick=killProc(${pid})>x</a>]</td><td>${pid}</td><td>${p.client}</td><td>${p.stream}</td><td>${p.cmd}</td></tr>\n`
                         html+=`</table></p>\n`
                     }
                     document.getElementById('status').innerHTML=html
-                    if (currentPage==logPage) {
-                        text=''
-                        for (l of await fetch('/log').then((r) => r.json())) text+=l+'\n'
-                        document.getElementById('content').innerHTML=`<pre>${text}</pre>`
-                    }
+                    for (l of await fetch('/log').then((r) => r.json())) document.getElementById('logdata').textContent+=l+'\n'
                 }
-                timer=setTimeout(getState,1000)
+                timer=setTimeout(load_status,1000)
             }
 
             async function rescan() {
-                rb=document.getElementById('rescan').innerHTML
-                document.getElementById('rescan').innerHTML=`[rescanning...]`
+                scanning=true
                 await fetch('/status',{
                     method:'POST',
                     body: new URLSearchParams({ rescan: 1 })
-                }).then(() => {
-                    document.getElementById('rescan').innerHTML=rb
-                    currentPage()
-                })
+                }).then(() => scanning=false)
             }
             
             async function killProc(pid){
@@ -71,34 +105,38 @@
 		        })
             }
 
-            async function logPage() {
-                clearTimeout(timer)
-                currentPage=logPage
-                getState()
+            async function load_log() {
+                load_status()
             }
 
-            async function sourcesPage() {
-                clearTimeout(timer)
-                currentPage=sourcesPage
+            async function load_sources() {
                 sources=await fetch('/sources').then((r) => r.json())
-                html=`<p><input type=text size=80 id=add>[<a href=#/ onClick=addAccount(document.getElementById('add').value)>add</a>]</p>\n<table><tr><th colspan=4>source/accounts</th><th>priority</th></tr>\n`
-                for ([source,source_data] of Object.entries(sources)){
+                html=`<datalist id=priority>`
+                html+=`</datalist>\n`
+                html+=`<p><input type=text size=80 id=add><button onclick=addAccount(document.getElementById('add').value)>add</button></p>\n<table><tr><th colspan=4>source/accounts</th><th>priority</th></tr>\n`
+                sourcesList=Object.entries(sources)
+                for ([source,source_data] of sourcesList){
                     html+=`<tr><td>`
-                    if (source_data.disabled) html+=`[<a href=#/ onClick=updateSource('${source}',${source_data.priority},0)>e</a>]`
-                    else html+=`[<a href=#/ onClick=updateSource('${source}',${source_data.priority},1)>d</a>]`
+                    if (source_data.disabled) html+=`<input type=checkbox onchange=updateSource('${source}',${source_data.priority},0)>`
+                    else html+=`<input type=checkbox checked=true onchange=updateSource('${source}',${source_data.priority},1)>`
                     html+=`</td><th colspan=3>${source_data.disabled?'<s>':''}${source}${source_data.disabled?'</s>':''}</th>`
-                    html+=`<td>[<a href=#/ onClick=updateSource('${source}',${Math.max(0,source_data.priority-1)},0)>-</a>]${source_data.priority}[<a href=#/ onClick=updateSource('${source}',${source_data.priority+1},0)>+</a>]</td></tr>\n`
+                    html+=`<td><select onchange=updateSource('${source}',this.value,${source_data.disabled}?1:0)>`
+                    for (i=0; i<sourcesList.length; i++) {
+                        html+=`<option value=${i}`
+                        if (i==source_data.priority) html+=' selected=true'
+                        html+=`>${i}</option>`
+                    }
+                    html+=`</select></td></tr>\n`
                     for (a of source_data.accounts) {
-                        html+='<tr><td>'
-                        if (a.disabled) html+=`[<a href=#/ onClick=updateAccount('${source}','${a.username}','${a.password}',0)>e</a>]`
-                        else html+=`[<a href=#/ onClick=updateAccount('${source}','${a.username}','${a.password}',1)>d</a>]`
-                        html+=`</td><td>[<a href=#/ onClick=removeAccount('${source}','${a.username}','${a.password}')>x</a>]</td>`
+                        html+=`<tr><td><button onclick=removeAccount('${source}','${a.username}','${a.password}')>&times;</button></td><td>`
+                        if (a.disabled) html+=`<input type=checkbox onchange=updateAccount('${source}','${a.username}','${a.password}',0)>`
+                        else html+=`<input type=checkbox checked=true onchange=updateAccount('${source}','${a.username}','${a.password}',1)>`
                         html+=`</td><td>${a.disabled?'<s>':''}${a.username}${a.disabled?'</s>':''}</td><td>${a.disabled?'<s>':''}${a.password}${a.disabled?'</s>':''}</td></tr>\n`
                     }
                 }
                 html+=`</table>\n`
-                document.getElementById('content').innerHTML=html
-                getState()
+                document.getElementById('sources').innerHTML=html
+                load_status()
             }
 
             async function updateSource(source,priority,disabled) {
@@ -110,7 +148,7 @@
                         disabled: disabled
                     })
                 })
-                sourcesPage()
+                load_sources()
             }
 
             async function removeAccount(source,username,password) {
@@ -122,7 +160,7 @@
                         password: password 
                     })
                 })
-                sourcesPage()
+                load_sources()
             }
 
             async function updateAccount(source,username,password,disabled) {
@@ -135,7 +173,7 @@
                         disabled: disabled 
                     })
                 })
-                sourcesPage()
+                load_sources()
             }
 
             async function addAccount(add) {
@@ -145,15 +183,13 @@
                         add: add, 
                     })
                 })
-                sourcesPage()
+                load_sources()
             }
 
-            async function configPage() {
-                clearTimeout(timer)
-                currentPage=configPage
+            async function load_config() {
                 current=await fetch('/config?defaults=1').then((r) => r.json())
                 config=await fetch('/config?defaults=0').then((r) => r.json())
-                html=`<p><form id=config><table>`
+                html=`<p><button onclick=editConfigJSON()>JSON editor</button></p><p><form id=config_form><table>`
                 for ([k,v] of Object.entries(current))
                     if (typeof v != 'object'){
                         if (typeof v == 'boolean') v=v?1:0
@@ -162,24 +198,35 @@
                         if (typeof cv == 'boolean') cv=cv?1:0
                         html+=`<tr><th>${k}</th><td><input type=text length=80 name=${k} value='${cv}'"></td><td>${v}</td></tr>\n`
                     }
-                html+=`</table>[<a href=#/ onClick=saveConfig()>save</a>]</form>`
-                document.getElementById('content').innerHTML=html
-                getState()
+                html+=`</table></form><button onclick=saveConfig()>save</button>`
+                document.getElementById('config').innerHTML=html
             }
 
             async function saveConfig() {
                 await fetch('/config',{ 
                     method: 'POST', 
                     body: new URLSearchParams(
-                        Array.from(new FormData(document.getElementById('config')))
+                        Array.from(new FormData(document.getElementById('config_form')))
                         )
                 })
-                configPage()
+                load_config()
             }
 
-            async function lineupPage(){
-                clearTimeout(timer)
-                currentPage=lineupPage
+            async function editConfigJSON() {
+                json=await fetch('/config.json').then((r) => r.text())
+                openExtraTab(`<textarea rows=50 cols=80 id=json>${json}</textarea><p><button onclick=saveConfigJSON(document.getElementById('json').value)>save</button></p>`,'JSON editor')
+            }
+
+            async function saveConfigJSON(json) {
+                await fetch('/config',{ 
+                    method: 'POST', 
+                    body: new URLSearchParams({'config':json})
+                })
+                editConfigJSON()
+            }
+
+            async function load_lineup(){
+                currentPage=load_lineup
                 data=await fetch('/lineup').then((r) => r.json())
                 html=`<p><table>\n`
                 for ([group,streams] of Object.entries(data.lineup)){
@@ -194,7 +241,7 @@
                 html+=`</table></p>\n<p><table>\n`
                 all_groups=[]
                 for ([source,groups] of Object.entries(data.groups)) {
-                    html+=`<tr><th><a href=#/ onClick=sourceLineup('${source}')>${source}</a></th><td>`
+                    html+=`<tr><th><a href=#/ onclick=sourceLineup('${source}')>${source}</a></th><td>`
                     sg=[]
                     for (group of groups) {
                         all_groups.push(group)
@@ -212,13 +259,12 @@
                 UPPER=config.upper
                 for (filter_type of filter_types) {
                     html+=`<tr><th colspan=2>${filter_type}</th></tr>`
-                    for (filter_text of config[filter_type]) html+=`<tr><td>[<a href=#/ onClick="updateFilter('${filter_type}','${filter_text.replaceAll('\\','\\\\')}',true)">x</a>]</td><td>${filter_text}</td></tr>`
+                    for (filter_text of config[filter_type]) html+=`<tr><td>[<a href=#/ onclick="updateFilter('${filter_type}','${filter_text.replaceAll('\\','\\\\')}',true)">x</a>]</td><td>${filter_text}</td></tr>`
                     html+=`<tr><td></td><td><input type=text size=40 id=${filter_type} list=${filter_type}-select>`
-                    html+=`[<a href=#/ onClick=updateFilter('${filter_type}',document.getElementById('${filter_type}').value,false)>add</a>]<br>&nbsp;</td></tr>`
+                    html+=`[<a href=#/ onclick=updateFilter('${filter_type}',document.getElementById('${filter_type}').value,false)>add</a>]<br>&nbsp;</td></tr>`
                 }
                 html+=`</table></p>`
-                document.getElementById('content').innerHTML=html
-                getState()
+                document.getElementById('lineup').innerHTML=html
             }
 
             async function updateFilter(filter_type,filter_text,remove) {
@@ -228,7 +274,7 @@
                     method:'POST',
                     body: new URLSearchParams(params)
                 })
-                lineupPage()
+                load_lineup()
             }
 
             async function sourceLineup(source) {
@@ -239,23 +285,66 @@
                     for (stream of data.streams) if (stream.category_id == gid) html+=`<tr><td>${stream.name}</td><td>${stream.epg_channel_id}</td></tr>\n`
                 }
                 html+=`</table>`
-                document.getElementById('content').innerHTML=html
+                openExtraTab(html,source)
+            }
+
+            async function openTab(evt, tab) {
+                // Get all elements with class="tabcontent" and hide them
+                tabcontent = document.getElementsByClassName("tabcontent");
+                for (i = 0; i < tabcontent.length; i++) {
+                    tabcontent[i].style.display = "none";
+                }
+
+                // Get all elements with class="tablinks" and remove the class "active"
+                tablinks = document.getElementsByClassName("tablinks");
+                for (i = 0; i < tablinks.length; i++) {
+                    tablinks[i].className = tablinks[i].className.replace(" active", "");
+                }
+
+                // Show the current tab, and add an "active" class to the link that opened the tab
+                document.getElementById(tab).style.display = "block";
+                evt.currentTarget.className += " active";
+
+                // update the displayed tab
+                self['load_'+tab]()
+            }
+
+            async function load_extra() {} //do nothing but has to exist
+
+            async function openExtraTab(html,name){
+                document.getElementById('extra_data').innerHTML=html
+                document.getElementById('extra_tab').innerHTML=`<button class=tablinks id=extra_button onclick="openTab(event,'extra')">${name}</button>`
+                document.getElementById('extra_button').click()
+            }
+
+            async function closeExtraTab() {
+                document.getElementById('extra').style.display = "none";
+                document.getElementById('extra_tab').innerHTML='';
+                onLoad()
             }
 
             async function onLoad() {
-                logPage()
+                document.getElementById('status_button').click()
             }
         </script>
     </head>
     <body onLoad=onLoad()>
-        <p id="status"></p>
-	    <p id=""menu"><table><tr>
-            <th id=rescan>[<a href=#/ onClick=rescan()>rescan</a>]</span></th>
-            <th>[<a href=#/ onClick=logPage()>log</a>]</th>
-            <th>[<a href=#/ onClick=sourcesPage()>sources</a>]</th>
-            <th>[<a href=#/ onClick=configPage()>config</a>]</th>
-            <th>[<a href=#/ onClick=lineupPage()>lineup</a>]</th><td id=lineup_cached></td>
-	    </tr></table></p>
-        <p id="content"></p>
+	    <div class=tab>
+            <button class=tablinks id=status_button onclick="openTab(event,'status')">status</button>
+            <button class=tablinks id=log_button onclick="openTab(event,'log')">log</button>
+            <button class=tablinks id=config_button onclick="openTab(event,'config')">config</button>
+            <button class=tablinks id=sources_button onclick="openTab(event,'sources')">sources</button>
+            <button class=tablinks id=lineup_button onclick="openTab(event,'lineup')">lineup</button>
+            <span id=extra_tab></span>
+	    </div>
+        <div id=status class=tabcontent></div>
+        <div id=log class=tabcontent><pre><span id=logdata></span></pre></div>
+        <div id=sources class=tabcontent></div>
+        <div id=config class=tabcontent></div>
+        <div id=lineup class=tabcontent></div>
+        <div id=extra class=tabcontent>
+            <div align=right><button onclick="closeExtraTab()">&times;</button></div>
+            <div id=extra_data></div>
+        </div>
     </body>
 </html>

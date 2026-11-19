@@ -10,6 +10,7 @@ from urllib.parse import quote, unquote
 from html import escape
 import asyncio
 from aiohttp import web
+import json
 from iptv import Config, Data, Account
 
 class Tuner:
@@ -125,12 +126,18 @@ class Tuner:
     async def get_config(self,request):
         return web.json_response(await self.config.get_config(**dict((k,int(v)) for k,v in request.query.items())))
 
+    async def get_config_json(self,request):
+        return web.Response(text=json.dumps(await self.config.get_config(defaults=False,sources=True),indent=4))
+
     async def get_sources(self,request):
         config = await self.config.get_config(sources=1)
         return web.json_response(config['sources'])
 
     async def get_log(self,request):
-        return web.json_response([lr.getMessage() for lr in LOGQ])
+        log=[]
+        while len(LOGQ):
+            log.append(LOGQ.popleft().getMessage())
+        return web.json_response(log)
 
     async def get_status(self,request):
         return web.json_response({
@@ -166,9 +173,10 @@ class Tuner:
         # key=value
         # remove=1 key=value
         try:
-            await self.config.update(
-                **dict((k,v if len(v) else None) for k,v in params.items())
-                )
+            if 'config' in params:
+                await self.config.save_config(params['config'])
+            else:
+                await self.config.update(**dict((k,v if len(v) else None) for k,v in params.items()))
             await self.data.rescan() #rebuild lineup only
         except Exception as e:
                 logging.exception(e)
@@ -212,6 +220,7 @@ class Tuner:
             web.get('/lineup',self.get_lineup),
             web.get('/log',self.get_log),
             web.get('/sources',self.get_sources),
+            web.get('/config.json', self.get_config_json),
             web.get('/config',self.get_config),
             web.get('/status',self.get_status),
             web.get('/',lambda request: web.FileResponse('index.html')),
