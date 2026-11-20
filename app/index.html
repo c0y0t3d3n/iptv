@@ -81,7 +81,7 @@
                     html+=`</tr></table></p>\n`
                     if (Object.entries(stat.procs).length){
                         html+=`<p><table><tr><th></th><th>pid</th><th>client</th><th>stream</th><th>cmd</th>\n`
-                        for ([pid,p] of Object.entries(stat.procs)) html+=`<tr><td>[<a href=#/ onclick=killProc(${pid})>x</a>]</td><td>${pid}</td><td>${p.client}</td><td>${p.stream}</td><td>${p.cmd}</td></tr>\n`
+                        for ([pid,p] of Object.entries(stat.procs)) html+=`<tr><td><button onclick=killProc(${pid})>&times;</button></td><td>${pid}</td><td>${p.client}</td><td>${p.stream}</td><td>${p.cmd}</td></tr>\n`
                         html+=`</table></p>\n`
                     }
                     document.getElementById('status').innerHTML=html
