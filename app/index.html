@@ -250,7 +250,9 @@
                     html+=sg.join()
                     html+=`</td></tr>\n`    
                 }
-                html+=`</table></p>\n<datalist id=groups-select>\n`
+                html+=`</table></p>\n`
+                document.getElementById('lineup').innerHTML=html
+	        html=`<datalist id=groups-select>\n`
                 for (group of all_groups) html+=`<option value='${group.replaceAll('|','\\|')}'/>`
                 html+=`</datalist>\n<datalist id=order-select>\n`
                 for (group of Object.keys(data.lineup)) html+=`<option value='${group.replaceAll('|','\\|')}'/>`
@@ -259,13 +261,16 @@
                 UPPER=config.upper
                 for (filter_type of filter_types) {
                     html+=`<tr><th colspan=2>${filter_type}</th></tr>`
-                    for (filter_text of config[filter_type]) html+=`<tr><td>[<a href=#/ onclick="updateFilter('${filter_type}','${filter_text.replaceAll('\\','\\\\')}',true)">x</a>]</td><td>${filter_text}</td></tr>`
+                    for (filter_text of config[filter_type]) html+=`<tr><td><button onclick="updateFilter('${filter_type}','${filter_text.replaceAll('\\','\\\\')}',true)">&times;</button></td><td>${filter_text}</td></tr>`
                     html+=`<tr><td></td><td><input type=text size=40 id=${filter_type} list=${filter_type}-select>`
-                    html+=`[<a href=#/ onclick=updateFilter('${filter_type}',document.getElementById('${filter_type}').value,false)>add</a>]<br>&nbsp;</td></tr>`
+			html+=`<button onclick=updateFilter('${filter_type}',document.getElementById('${filter_type}').value,false)>add</button><br>&nbsp;</td></tr>`
                 }
                 html+=`</table></p>`
-                document.getElementById('lineup').innerHTML=html
+                document.getElementById('filters').innerHTML=html
             }
+	    
+	    //filters are loaded with lineup
+	    load_filters=load_lineup
 
             async function updateFilter(filter_type,filter_text,remove) {
                 params=remove?{'remove':true}:{}
@@ -334,6 +339,7 @@
             <button class=tablinks id=log_button onclick="openTab(event,'log')">log</button>
             <button class=tablinks id=config_button onclick="openTab(event,'config')">config</button>
             <button class=tablinks id=sources_button onclick="openTab(event,'sources')">sources</button>
+            <button class=tablinks id=filters_button onclick="openTab(event,'filters')">filters</button>
             <button class=tablinks id=lineup_button onclick="openTab(event,'lineup')">lineup</button>
             <span id=extra_tab></span>
 	    </div>
@@ -341,6 +347,7 @@
         <div id=log class=tabcontent><pre><span id=logdata></span></pre></div>
         <div id=sources class=tabcontent></div>
         <div id=config class=tabcontent></div>
+        <div id=filters class=tabcontent></div>
         <div id=lineup class=tabcontent></div>
         <div id=extra class=tabcontent>
             <div align=right><button onclick="closeExtraTab()">&times;</button></div>

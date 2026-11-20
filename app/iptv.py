@@ -124,7 +124,7 @@ class Config:
     
     async def save_config(self,config_json):
         #validate json and save config
-        self._config=json.loads(config_json)
+        self.__config=json.loads(config_json)
         async with self.lock:
             logging.info('config: saved')
             self.write()
