@@ -84,7 +84,7 @@
                         for ([pid,p] of Object.entries(stat.procs)) html+=`<tr><td><button onclick=killProc(${pid})>&times;</button></td><td>${pid}</td><td>${p.client}</td><td>${p.stream}</td><td>${p.cmd}</td></tr>\n`
                         html+=`</table></p>\n`
                     }
-                    document.getElementById('status').innerHTML=html
+                    document.getElementById('statusdata').innerHTML=html
                     for (l of await fetch('/log').then((r) => r.json())) document.getElementById('logdata').textContent+=l+'\n'
                 }
                 timer=setTimeout(load_status,1000)
@@ -103,10 +103,6 @@
                     method:'POST',
                     body: new URLSearchParams({ kill: pid })
 		        })
-            }
-
-            async function load_log() {
-                load_status()
             }
 
             async function load_sources() {
@@ -136,7 +132,6 @@
                 }
                 html+=`</table>\n`
                 document.getElementById('sources').innerHTML=html
-                load_status()
             }
 
             async function updateSource(source,priority,disabled) {
@@ -226,7 +221,7 @@
             }
 
             async function load_lineup(){
-                currentPage=load_lineup
+                //lineup page
                 data=await fetch('/lineup').then((r) => r.json())
                 html=`<p><table>\n`
                 for ([group,streams] of Object.entries(data.lineup)){
@@ -234,25 +229,33 @@
                     //first char of hostname if source  link  epgid
                     for (s of streams) {
                         html+=`<tr><td>`
+                        html+=`[<span onclick="newFilter('rename','${s.GuideName.replaceAll('|','\\|')}=')">=</span>]`
+                        html+=`[<span onclick="newFilter('streams_exclude','${s.GuideName.replaceAll('|','\\|')}')">-</span>]&nbsp;`  
                         for (u of Object.keys(s.sources)) html+=u.split('/')[2].substr(0,1)
-                        html+=`</td><td><a href='${s.URL}'>${s.GuideName}</a></td><td>${s.GuideID}</td></tr>\n`
+                        html+=`&nbsp;</td><td>`
+                        html+=`<a href='${s.URL}'>${s.GuideName}</a></td><td>`    
+                        html+=`[<span onclick="newFilter('map','${s.GuideName.replaceAll('|','\\|')}=${s.GuideID}')">map</span>]&nbsp;`                    
+                        html+=`${s.GuideID}</td></tr>\n`
                     }
                 }
                 html+=`</table></p>\n<p><table>\n`
                 all_groups=[]
                 for ([source,groups] of Object.entries(data.groups)) {
-                    html+=`<tr><th><a href=#/ onclick=sourceLineup('${source}')>${source}</a></th><td>`
-                    sg=[]
+                    html+=`<tr><th colspan=2>${source}<td><button onclick=sourceLineup('${source}')>source lineup</button></td></tr>\n`
                     for (group of groups) {
                         all_groups.push(group)
-                        sg.push((group in data.lineup)?`<a href='#${group}'>${group}</a>`:group)
+                        html+=`<tr><td>[<span onclick="newFilter('group_rename','${group.replaceAll('|','\\|')}=')">=</span>]`
+                        html+=(group in data.lineup)?
+                            `</td><td><a href='#${group}'>${group}</a>`:
+                            `[<span onclick="newFilter('groups','${group.replaceAll('|','\\|')}')")>+</span>]</td><td>${group}`
+                        html+=`</td></tr>\n`
                     }
-                    html+=sg.join()
-                    html+=`</td></tr>\n`    
+                    html+=`<tr><td><br></td></tr>\n`
                 }
                 html+=`</table></p>\n`
                 document.getElementById('lineup').innerHTML=html
-	        html=`<datalist id=groups-select>\n`
+                //filters page
+	            html=`<datalist id=groups-select>\n`
                 for (group of all_groups) html+=`<option value='${group.replaceAll('|','\\|')}'/>`
                 html+=`</datalist>\n<datalist id=order-select>\n`
                 for (group of Object.keys(data.lineup)) html+=`<option value='${group.replaceAll('|','\\|')}'/>`
@@ -263,14 +266,19 @@
                     html+=`<tr><th colspan=2>${filter_type}</th></tr>`
                     for (filter_text of config[filter_type]) html+=`<tr><td><button onclick="updateFilter('${filter_type}','${filter_text.replaceAll('\\','\\\\')}',true)">&times;</button></td><td>${filter_text}</td></tr>`
                     html+=`<tr><td></td><td><input type=text size=40 id=${filter_type} list=${filter_type}-select>`
-			html+=`<button onclick=updateFilter('${filter_type}',document.getElementById('${filter_type}').value,false)>add</button><br>&nbsp;</td></tr>`
+			        html+=`<button onclick=updateFilter('${filter_type}',document.getElementById('${filter_type}').value,false)>add</button></td></tr><tr><td><br></td></tr>\n`
                 }
                 html+=`</table></p>`
                 document.getElementById('filters').innerHTML=html
             }
-	    
-	    //filters are loaded with lineup
-	    load_filters=load_lineup
+            load_filters=load_lineup  //filters are loaded with lineup
+
+            async function newFilter(filter_type,filter_text){
+                await focusTab(null,'filters',document.getElementById('filters_button'))
+                e=document.getElementById(filter_type)
+                e.value=filter_text
+                e.focus()
+            }
 
             async function updateFilter(filter_type,filter_text,remove) {
                 params=remove?{'remove':true}:{}
@@ -287,13 +295,17 @@
                 html=`<table>`
                 for ([gid,group] of Object.entries(data.groups)){
                     html+=`<tr></tr><tr><th>${group}</th></tr>\n`
-                    for (stream of data.streams) if (stream.category_id == gid) html+=`<tr><td>${stream.name}</td><td>${stream.epg_channel_id}</td></tr>\n`
+                    for (stream of data.streams) if (stream.category_id == gid) {
+                        html+=`<tr><td>`
+                        html+=`[<span onclick="newFilter('streams','${stream.name.replaceAll('|','\\|')}')">+</span>]&nbsp;`  
+                        html+=`${stream.name}</td><td>${stream.epg_channel_id}</td></tr>\n`
+                    }
                 }
                 html+=`</table>`
                 openExtraTab(html,source)
             }
 
-            async function openTab(evt, tab) {
+            async function focusTab(evt, tab, button) {
                 // Get all elements with class="tabcontent" and hide them
                 tabcontent = document.getElementsByClassName("tabcontent");
                 for (i = 0; i < tabcontent.length; i++) {
@@ -308,10 +320,16 @@
 
                 // Show the current tab, and add an "active" class to the link that opened the tab
                 document.getElementById(tab).style.display = "block";
-                evt.currentTarget.className += " active";
+                // might be an event, might be passed the element
+                if (evt) evt.currentTarget.className += " active";
+                else button.className +=" active"
+            }
 
-                // update the displayed tab
-                self['load_'+tab]()
+            async function openTab(evt,tab){
+                // update the tab
+                await self['load_'+tab]()
+                //focus the tab
+                await focusTab(evt,tab)
             }
 
             async function load_extra() {} //do nothing but has to exist
@@ -336,15 +354,16 @@
     <body onLoad=onLoad()>
 	    <div class=tab>
             <button class=tablinks id=status_button onclick="openTab(event,'status')">status</button>
-            <button class=tablinks id=log_button onclick="openTab(event,'log')">log</button>
             <button class=tablinks id=config_button onclick="openTab(event,'config')">config</button>
             <button class=tablinks id=sources_button onclick="openTab(event,'sources')">sources</button>
             <button class=tablinks id=filters_button onclick="openTab(event,'filters')">filters</button>
             <button class=tablinks id=lineup_button onclick="openTab(event,'lineup')">lineup</button>
             <span id=extra_tab></span>
 	    </div>
-        <div id=status class=tabcontent></div>
-        <div id=log class=tabcontent><pre><span id=logdata></span></pre></div>
+        <div id=status class=tabcontent>
+            <div id=statusdata></div>
+            <div id=log><table><tr><th>events:</th></tr><tr><td><pre><span id=logdata></span></pre></td></tr></table></div>
+        </div>
         <div id=sources class=tabcontent></div>
         <div id=config class=tabcontent></div>
         <div id=filters class=tabcontent></div>
