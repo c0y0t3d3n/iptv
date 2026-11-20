@@ -234,7 +234,7 @@
                         for (u of Object.keys(s.sources)) html+=u.split('/')[2].substr(0,1)
                         html+=`&nbsp;</td><td>`
                         html+=`<a href='${s.URL}'>${s.GuideName}</a></td><td>`    
-                        html+=`[<span onclick="newFilter('map','${s.GuideName.replaceAll('|','\\|')}=${s.GuideID}')">map</span>]&nbsp;`                    
+                        html+=`[<span onclick="newFilter('map','${s.GuideName.replaceAll('|','\\|')}=${s.GuideID}')">=</span>]&nbsp;`                    
                         html+=`${s.GuideID}</td></tr>\n`
                     }
                 }
