@@ -5,6 +5,9 @@
 * Filters and renames channels to match what the Plex EPG is expecting.
 * Automerges lineups from multiple providers.
 * When a channel is requested, refreshes the status of all accounts and chooses the best available.
+<img width="689" height="427" alt="image" src="https://github.com/user-attachments/assets/5549a052-768b-49bf-9997-609fa6908e33" />
+<img width="712" height="400" alt="image" src="https://github.com/user-attachments/assets/f0d5ccb7-e559-42fa-927c-69e42ba35f1f" />
+
 
 # Getting started
 A `docker-compose.yaml` and `Dockerfile` to build/run a tuner container is included. Make sure you set `SERVER_IP` in `docker-compose.yaml`. A default config will be created if it does not exist.
