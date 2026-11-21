@@ -22,9 +22,9 @@ class Tuner:
 
     async def get_stream(self,request):
         #serve stream URL or stream data
-        k=unquote(request.match_info['stream'])
+        k=unquote(request.match_info['stream']).replace(' ','_').lower() #plex might feed us /auto/vCHANNEL if loading lineup takes too long.
         logging.debug('stream: %s request %s'%(request.remote, k))
-        l=self.data.lineup.get(k)
+        l=await self.data.get_stream(k)
         if l:
             response=None
             retry=True
@@ -212,6 +212,7 @@ class Tuner:
     def routes(self):
         return [
             web.get('/stream/{stream}',self.get_stream),
+            web.get('/auto/v{stream}',self.get_stream),
             web.get('/m3u',self.get_m3u),
             web.get('/xmltv',self.get_xmltv),
             web.get('/discover.json',self.get_discover),
@@ -283,7 +284,6 @@ async def setup(config_file=None):
         logging.debug('%s=%s',k,v)
     # init datastore
     data=Data(config)
-    await data.rescan()
     return config,data
 
 def main(*args):

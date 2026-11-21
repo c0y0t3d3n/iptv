@@ -294,6 +294,8 @@ class Data:
         self.xmltv_lock=asyncio.Lock()
         self.accounts={}
         self.lineup={}
+        self.streams_cache={}
+        self.groups_cache={}
 
     async def xtream_request(self,url,a,action=None,path='player_api.php',raw=False):
         # xtream codes API requests
@@ -498,8 +500,27 @@ class Data:
                     if s[1]:
                         ids[s[1]]=k
                     #create channel and add this source
+                    lineup.setdefault(k, {
+                                        'GuideNumber':s[0],
+                                        'GuideName':s[0], 
+                                        'GuideID':s[1],
+                                        'GuideCategory':s[2],
+                                        'sources':{},
+                                    })['sources'][url]=s[3]
+                    #ensure a guide ID if possible
+                    if not lineup[k]['GuideID']:
+                        lineup[k]['GuideID']=s[1]
+                    #deal with source order changing by always keeping shorter name/key
+                    if len(s[0]) < len(lineup[k]['GuideNumber']):
+                        logging.debug('lineup: autorename %s -> %s',lineup[k]['GuideNumber'],s[0])
+                        lineup[k].update(GuideNumber=s[0],GuideName=s[0])
+                        nk=s[0].lower().replace(' ','_')
+                        lineup[nk]=lineup[k]
+                        ids[s[1]]=nk
+                        del lineup[k]
+                        k=nk
                     if acct: # build limeup for single account
-                        stream_url=self.config.format % (
+                        lineup[k]['URL']=self.config.format % (
                             acct.info['server_info']['url'], 
                             acct.info['server_info']['port'], 
                             acct.username, 
@@ -507,22 +528,7 @@ class Data:
                             s[3]
                         )
                     else:
-                        stream_url='http://%s:%s/stream/%s' % (self.config.server_ip,self.config.server_port,quote(k))
-                    lineup.setdefault(k, {
-                                        'GuideNumber':s[0],
-                                        'GuideName':s[0], 
-                                        'GuideID':s[1],
-                                        'GuideCategory':s[2],
-                                        'sources':{},
-                                        'URL':stream_url
-                                    })['sources'][url]=s[3]
-                    #ensure a guide ID if possible
-                    if not lineup[k]['GuideID']:
-                        lineup[k]['GuideID']=s[1]
-                    #deal with source order changing by always keeping shorter name
-                    if len(s[0]) < len(lineup[k]['GuideNumber']):
-                        logging.debug('lineup: autorename %s -> %s',lineup[k]['GuideNumber'],s[0])
-                        lineup[k].update(GuideNumber=s[0],GuideName=s[0])
+                        lineup[k]['URL']='http://%s:%s/stream/%s' % (self.config.server_ip,self.config.server_port,quote(k))
                     await asyncio.sleep(0)
             #if set, filter to channels with EPG IDs and at least minimum sources (or manually mapped) 
             if self.config.min_sources:
@@ -546,6 +552,10 @@ class Data:
         except Exception as e:
             logging.exception(e)
         return self.group_lineup
+
+    async def get_stream(self,k):
+        async with self.lineup_lock:
+            return self.lineup.get(k)
 
     async def fetch_xmltv(self,selected_sources):
         self.xmltv_cache={'data':{},'channels':{},'programs':{}}

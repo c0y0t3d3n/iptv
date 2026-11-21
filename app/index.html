@@ -115,7 +115,7 @@
                     html+=`<tr><td>`
                     if (source_data.disabled) html+=`<input type=checkbox onchange=updateSource('${source}',${source_data.priority},0)>`
                     else html+=`<input type=checkbox checked=true onchange=updateSource('${source}',${source_data.priority},1)>`
-                    html+=`</td><th colspan=3>${source_data.disabled?'<s>':''}${source}${source_data.disabled?'</s>':''}</th>`
+                    html+=`</td><th colspan=3>${source}</th>`
                     html+=`<td><select onchange=updateSource('${source}',this.value,${source_data.disabled}?1:0)>`
                     for (i=0; i<sourcesList.length; i++) {
                         html+=`<option value=${i}`
@@ -127,7 +127,7 @@
                         html+=`<tr><td><button onclick=removeAccount('${source}','${a.username}','${a.password}')>&times;</button></td><td>`
                         if (a.disabled) html+=`<input type=checkbox onchange=updateAccount('${source}','${a.username}','${a.password}',0)>`
                         else html+=`<input type=checkbox checked=true onchange=updateAccount('${source}','${a.username}','${a.password}',1)>`
-                        html+=`</td><td>${a.disabled?'<s>':''}${a.username}${a.disabled?'</s>':''}</td><td>${a.disabled?'<s>':''}${a.password}${a.disabled?'</s>':''}</td></tr>\n`
+                        html+=`</td><td>${a.username}</td><td>${a.password}</td></tr>\n`
                     }
                 }
                 html+=`</table>\n`
@@ -229,12 +229,12 @@
                     //first char of hostname if source  link  epgid
                     for (s of streams) {
                         html+=`<tr><td>`
-                        html+=`[<span onclick="newFilter('rename','${s.GuideName.replaceAll('|','\\|')}=')">=</span>]`
-                        html+=`[<span onclick="newFilter('streams_exclude','${s.GuideName.replaceAll('|','\\|')}')">-</span>]&nbsp;`  
+                        html+=`<button onclick="newFilter('rename','${s.GuideName.replaceAll('|','\\|')}=')">=</button>`
+                        html+=`<button onclick="newFilter('streams_exclude','${s.GuideName.replaceAll('|','\\|')}')">-</button>&nbsp;`  
                         for (u of Object.keys(s.sources)) html+=u.split('/')[2].substr(0,1)
                         html+=`&nbsp;</td><td>`
                         html+=`<a href='${s.URL}'>${s.GuideName}</a></td><td>`    
-                        html+=`[<span onclick="newFilter('map','${s.GuideName.replaceAll('|','\\|')}=${s.GuideID}')">=</span>]&nbsp;`                    
+                        html+=`<button onclick="newFilter('map','${s.GuideName.replaceAll('|','\\|')}=${s.GuideID}')">=</button>&nbsp;`                    
                         html+=`${s.GuideID}</td></tr>\n`
                     }
                 }
@@ -244,10 +244,10 @@
                     html+=`<tr><th colspan=2>${source}<td><button onclick=sourceLineup('${source}')>source lineup</button></td></tr>\n`
                     for (group of groups) {
                         all_groups.push(group)
-                        html+=`<tr><td>[<span onclick="newFilter('group_rename','${group.replaceAll('|','\\|')}=')">=</span>]`
+                        html+=`<tr><td><button onclick="newFilter('group_rename','${group.replaceAll('|','\\|')}=')">=</button>`
                         html+=(group in data.lineup)?
                             `</td><td><a href='#${group}'>${group}</a>`:
-                            `[<span onclick="newFilter('groups','${group.replaceAll('|','\\|')}')")>+</span>]</td><td>${group}`
+                            `<button onclick="newFilter('groups','${group.replaceAll('|','\\|')}')")>+</button></td><td>${group}`
                         html+=`</td></tr>\n`
                     }
                     html+=`<tr><td><br></td></tr>\n`
@@ -297,7 +297,7 @@
                     html+=`<tr></tr><tr><th>${group}</th></tr>\n`
                     for (stream of data.streams) if (stream.category_id == gid) {
                         html+=`<tr><td>`
-                        html+=`[<span onclick="newFilter('streams','${stream.name.replaceAll('|','\\|')}')">+</span>]&nbsp;`  
+                        html+=`<button onclick="newFilter('streams','${stream.name.replaceAll('|','\\|')}')">+</button>&nbsp;`  
                         html+=`${stream.name}</td><td>${stream.epg_channel_id}</td></tr>\n`
                     }
                 }
