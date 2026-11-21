@@ -274,7 +274,7 @@
             load_filters=load_lineup  //filters are loaded with lineup
 
             async function newFilter(filter_type,filter_text){
-                await focusTab(null,'filters',document.getElementById('filters_button'))
+                await focusTab('filters')
                 e=document.getElementById(filter_type)
                 e.value=filter_text
                 e.focus()
@@ -305,7 +305,7 @@
                 openExtraTab(html,source)
             }
 
-            async function focusTab(evt, tab, button) {
+            async function focusTab(tab) {
                 // Get all elements with class="tabcontent" and hide them
                 tabcontent = document.getElementsByClassName("tabcontent");
                 for (i = 0; i < tabcontent.length; i++) {
@@ -321,15 +321,14 @@
                 // Show the current tab, and add an "active" class to the link that opened the tab
                 document.getElementById(tab).style.display = "block";
                 // might be an event, might be passed the element
-                if (evt) evt.currentTarget.className += " active";
-                else button.className +=" active"
+                document.getElementById(tab+'_button').className += " active";
             }
 
-            async function openTab(evt,tab){
+            async function openTab(tab){
                 // update the tab
                 await self['load_'+tab]()
                 //focus the tab
-                await focusTab(evt,tab)
+                await focusTab(tab)
             }
 
             async function load_extra() {} //do nothing but has to exist
@@ -353,11 +352,11 @@
     </head>
     <body onLoad=onLoad()>
 	    <div class=tab>
-            <button class=tablinks id=status_button onclick="openTab(event,'status')">status</button>
-            <button class=tablinks id=config_button onclick="openTab(event,'config')">config</button>
-            <button class=tablinks id=sources_button onclick="openTab(event,'sources')">sources</button>
-            <button class=tablinks id=filters_button onclick="openTab(event,'filters')">filters</button>
-            <button class=tablinks id=lineup_button onclick="openTab(event,'lineup')">lineup</button>
+            <button class=tablinks id=status_button onclick="openTab('status')">status</button>
+            <button class=tablinks id=config_button onclick="openTab('config')">config</button>
+            <button class=tablinks id=sources_button onclick="openTab('sources')">sources</button>
+            <button class=tablinks id=filters_button onclick="openTab('filters')">filters</button>
+            <button class=tablinks id=lineup_button onclick="openTab('lineup')">lineup</button>
             <span id=extra_tab></span>
 	    </div>
         <div id=status class=tabcontent>
