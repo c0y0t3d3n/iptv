@@ -69,7 +69,7 @@ Options can set on the config tab or environment. A JSON editor button will open
 
 `SERVER_IP` and `SERVER_PORT` to set listening IP and port. Defaults to localhost:5004\
 `DIRECT=1` will bypass ffmpeg remuxing and redirect clients to the stream URL.\
-`RETRY=0` will disconnect a client on stream failure vs. retrying the source.
+`RETRY=0` will disconnect a client on stream failure vs. retrying the source.\
 `TUNER_COUNT=<n>` set the number of tuners reported to Plex.\
 `CACHE=<seconds>` cache account status for the specified number of seconds.\
 `LINEUP_CACHE=<seconds>` cache lineup and XMLTV for the specified number of seconds. Defualt 86400.\
