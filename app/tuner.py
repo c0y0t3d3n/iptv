@@ -55,7 +55,7 @@ class Tuner:
                             self.procs[proc.pid]=(request.remote,k,args)
                         except Exception as e:
                             logging.exception(e)
-                            return web.Response(status=500,text=str(e))
+                            return response if response else web.Response(status=500,text=str(e))
                         try:
                             if not response: #start stream to client, do not do this on retry
                                 response=web.StreamResponse()
@@ -93,7 +93,9 @@ class Tuner:
                 except Exception as e: #no source available for this stream
                     logging.debug('stream: %s %s',k,e)
                     self.data.last_refresh=0 #expire cache if nothing usable
-                    return web.Response(status=503,text=k)
+                    return response if response else web.Response(status=503,text=k)
+                if not self.config.retry:
+                    break
             logging.info('stream: %s %s stopped', request.remote, k)
             return response # end streaming request handler if not retrying
         else:
@@ -245,8 +247,9 @@ Config.args.update( dict(
         server_port=(int,5004),
         verbose=(bool,0),
         tuner_count=(int,4),
-        cmd=(str,'ffmpeg -hide_banner -loglevel error -user_agent tuner -i %s -c copy -c:a ac3 -copyts -f mpegts pipe:1'),
+        cmd=(str,'ffmpeg -hide_banner -loglevel error -user_agent tuner -i %s -c copy -copyts -f mpegts pipe:1'),
         direct=(bool,0),
+        retry=(bool,1),
         buffer=(int,1024*1024) #buffer size for streaming
 ))
 
