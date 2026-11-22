@@ -12,14 +12,16 @@
 # Getting started
 A `docker-compose.yaml` and `Dockerfile` to build/run a tuner container is included. Make sure you set `SERVER_IP` in `docker-compose.yaml`. A default config will be created if it does not exist.
 
-Visit `http://SERVER_IP:SERVER_PORT/` for the web UI. On the sources page is an import field. Paste xtream codes as `URL USERNAME PASSWORD` or a URL and hit 'Add account' to import it.
+Visit `http://SERVER_IP:SERVER_PORT/` for the web UI. On the sources tab is an import field. Paste xtream codes as `URL USERNAME PASSWORD` or a URL and hit 'Add account' to import it.
 
 To add the tuner to Plex you need to manually enter the `SERVER_IP:SERVER_PORT` and it should appear. When you rescan channels in Plex it refreshes accounts and fetches lineups. Once you have the group and channel name filters set properly Plex should be able to map most of them to one of your local cable/satellite provider lineups. Any manual mappings you do should stick even if you change IPTV providers, as long as you adjust the filters.
 
-If you are using Jellyfin or another IPTV player, use the M3U and XMLTV links on the status page. XMLTV is fetched from all sources and filtered to only channels in the lineup.
+If you are using Jellyfin or another IPTV player, use the M3U and XMLTV links on the status tab. XMLTV is fetched from all sources and filtered to only channels in the lineup.
 
 # Building the lineup
-There is a list of groups provided by each source and a basic filter builder at the bottom of the lineup page. Choose a group from the dropdown or enter a regex pattern and hit Add.
+A basic set of filters is preconfigured. At the bottom of the lineup tab are the groups provided by each source. `+` will create a filter to add a group, and `=` will create filter to rename a group. Hid `add` to save the filter. Next to each source is a button to view the source lineup. The `+` next to a stream will create a filter to add that stream.
+
+Once the lineup is built, the `-` button will create a filter to exclude a stream and the `=` button will create filter to rename a stream.
 
 All match patterns and replace strings are by default uppercased. This generally makes filtering and merging easier but limits what regexes you can use. Set `UPPER` to 0 in config to disable uppercasing.
 
@@ -37,7 +39,7 @@ All match patterns and replace strings are by default uppercased. This generally
 `replace:` replace any streams with the same name if a stream matching name+`pattern` exists.\
 Example: `UHD$` will turn 'ABC UHD' into 'ABC', removing any streams named 'ABC', but only if 'ABC UHD' exists. `^FHD: ` will do the same for 'FHD: ' at the start of the name.
 
-`map:` To override the EPG ID for a channel, specify `NAME=epg_id`. This is a bidirectional mapping: all channels with `NAME` will be mapped to `epg_id` and all channels with `epgid` will be renamed to `NAME`.
+`map:` To override the EPG ID for a channel, specify `NAME=epg_id`. This is a bidirectional mapping: all channels with `NAME` will be mapped to `epg_id` and all channels with `epgid` will be renamed to `NAME`. The `=` button next to the EPG IDs in the lineup will create a mapping.
 
 `order:` order the groups in the lineup. Groups matching the first pattern will be followed by groups matching the next and so on. Groups that do not match any pattern will be placed last.
 
@@ -63,10 +65,11 @@ If you have a large number of accounts for a source, you may not want to probe a
 # Command line and options
 `app/tuner.py config_file`
 
-Options can set on the config page or environment. A JSON editor is provided at the bottom.
+Options can set on the config tab or environment. A JSON editor button will open a tab to directly edit the config.
 
 `SERVER_IP` and `SERVER_PORT` to set listening IP and port. Defaults to localhost:5004\
 `DIRECT=1` will bypass ffmpeg remuxing and redirect clients to the stream URL.\
+`RETRY=0` will disconnect a client on stream failure vs. retrying the source.
 `TUNER_COUNT=<n>` set the number of tuners reported to Plex.\
 `CACHE=<seconds>` cache account status for the specified number of seconds.\
 `LINEUP_CACHE=<seconds>` cache lineup and XMLTV for the specified number of seconds. Defualt 86400.\
@@ -77,7 +80,7 @@ Options can set on the config page or environment. A JSON editor is provided at 
 `DELAY=<seconds>` add a delay between refreshing each accoumnt.\
 `UPPER=0` disable uppercasing of group and channel names.\
 `LOGLEVEL=<level>` set the logging level. 10=debug, 20=info, 30=warning, 40=error. Must be set in environment.\
-`LOGDEPTH=<n>` retain `n` messages on the log page.\
+`LOGDEPTH=<n>` retain `n` messages on the log tab.\
 `VERBOSE=1` log all requests.\
 `FORMAT=<string>` URL format for requesting a stream from the source. %s substitutions will be host, port, username, passsword, stream ID.\
 `CMD=` will override the command used to fetch and remux the stream. Whatever you use should accept a stream URL as `%s` and pipe to STDOUT.
