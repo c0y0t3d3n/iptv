@@ -392,6 +392,13 @@ class Data:
                 streams=self.streams_cache.setdefault(url,[])
                 for s in await self.xtream_request(url,a,'get_live_streams'):
                     s['name']=upper(s['name'].replace(',',''))
+                    s['url']=self.config.format % (
+                        a.info['server_info']['url'], 
+                        a.info['server_info']['port'], 
+                        a.username, 
+                        a.password,               
+                        s['stream_id']
+                    )      
                     streams.append(s)
                     sources_fetched.add(url)
                     await asyncio.sleep(0)
