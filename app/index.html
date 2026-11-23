@@ -56,8 +56,7 @@
                     else {
                         html=`<p><button onclick=rescan()>rescan</button>&nbsp;`
                         if (stat.lineup_nstreams) html+=`${stat.lineup_ngroups} groups ${stat.lineup_nstreams} streams`
-                            if (stat.lineup_cached) html+= ` cached for ${stat.lineup_cached}s`
-                        else html+=`no lineup available`
+                        if (stat.lineup_cached) html+= ` cached for ${stat.lineup_cached}s`
                     }
                     html+=`</p>\n<p>`
                     if (Object.entries(stat.sources).length) {
