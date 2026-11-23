@@ -561,6 +561,8 @@ class Data:
         return self.group_lineup
 
     async def get_stream(self,k):
+        if not self.last_rescan or self.last_rescan + self.config.lineup_cache < time.time():
+            await self.rescan()
         async with self.lineup_lock:
             return self.lineup.get(k)
 
