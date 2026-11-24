@@ -247,7 +247,7 @@ Config.args.update( dict(
         server_port=(int,5004),
         verbose=(bool,0),
         tuner_count=(int,4),
-        cmd=(str,'ffmpeg -hide_banner -loglevel error -user_agent tuner -i %s -c copy -c:a aac -copyts -f mpegts pipe:1'),
+        cmd=(str,'ffmpeg -hide_banner -loglevel error -user_agent tuner -i %s -c copy -copyts -f mpegts pipe:1'),
         direct=(bool,0),
         retry=(bool,1),
         buffer=(int,1024*1024) #buffer size for streaming
