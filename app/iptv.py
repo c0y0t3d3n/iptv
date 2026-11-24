@@ -486,53 +486,62 @@ class Data:
                 for s in streams:
                     s[0]=s[0].strip()
                     await asyncio.sleep(0)
-                logging.debug('lineup: %s %s groups %s streams',url,len([g for g in self.source_groups[url].values() if g[1]]),len(streams))
-                # build lineup by merging streams across sources
                 if streams: #this source is good
                     nsources+=1
-                for s in streams:
+                logging.debug('lineup: %s %s groups %s streams',url,len([g for g in self.source_groups[url].values() if g[1]]),len(streams))
+                # build lineup by merging streams across sources
+                for (name,epgid,group,streamid) in streams:
                     #set names and EPG IDs if mapped
-                    if s[0] in map_name_id:
-                        logging.debug('lineup: map %s %s -> %s',s[0],s[1],map_name_id[s[0]].lower())
-                        s[1]=map_name_id[s[0]].lower()
-                    elif s[1] in map_id_name:
-                        logging.debug('lineup: map %s -> %s %s',s[0],map_id_name[s[1]],s[1])
-                        s[0]=map_id_name[s[1]]
+                    if name in map_name_id:
+                        logging.debug('lineup: map %s %s %s=%s',url,name,epgid,map_name_id[name].lower())
+                        epgid=map_name_id[name].lower()
+                    elif epgid in map_id_name:
+                        logging.debug('lineup: map %s %s %s=%s',url,epgid,map_id_name[epgid])
+                        name=map_id_name[epgid]
                     #key will be name lower/snakecased.
-                    k=s[0].lower().replace(' ','_') 
+                    k=name.lower().replace(' ','_') 
                     #auto mapping will merge channels with different names if the epg ids match
-                    if self.config.auto_map and k not in lineup and s[1] in ids:
-                            logging.debug('lineup: automap %s %s -> %s',s[1],k,ids[s[1]])
-                            k=ids[s[1]]
-                    if s[1]:
-                        ids[s[1]]=k
-                    #create channel and add this source
+                    if self.config.auto_map:
+                        if epgid in ids:
+                            logging.debug('lineup: automap %s %s %s=%s',url,epgid,k,ids[epgid])
+                            k=ids[epgid]
+                        #deal with source order changing by keeping shortest name/key
+                        if k in lineup and len(name) < len(lineup[k]['GuideName']):
+                            sk=name.lower().replace(' ','_')
+                            logging.debug('lineup: autorename %s -> %s',k,sk)
+                            #merge sources if shorter key exists
+                            if sk in lineup:
+                                lineup[sk]['sources'].update(lineup[k]['sources'])
+                            else:
+                                lineup[sk]=lineup[k]
+                            lineup[sk].update(GuideNumber=name,GuideName=name,GuideCategory=group)
+                            if epgid:
+                                ids[epgid]=sk
+                            del lineup[k]
+                            k=sk
+                    #create/update channel and add this source
                     lineup.setdefault(k, {
-                                        'GuideNumber':s[0],
-                                        'GuideName':s[0], 
-                                        'GuideID':s[1],
-                                        'GuideCategory':s[2],
+                                        'GuideNumber':name,
+                                        'GuideName':name, 
+                                        'GuideID':epgid,
+                                        'GuideCategory':group,
                                         'sources':{},
-                                    })['sources'][url]=s[3]
-                    #ensure a guide ID if possible
+                                    })['sources'][url]=streamid
+                    #ensure an EPG ID in lineup and mapped to key if possible
                     if not lineup[k]['GuideID']:
-                        lineup[k]['GuideID']=s[1]
-                    #deal with source order changing by always keeping shorter name/key
-                    if len(s[0]) < len(lineup[k]['GuideNumber']):
-                        logging.debug('lineup: autorename %s -> %s',lineup[k]['GuideNumber'],s[0])
-                        lineup[k].update(GuideNumber=s[0],GuideName=s[0])
-                        nk=s[0].lower().replace(' ','_')
-                        lineup[nk]=lineup[k]
-                        ids[s[1]]=nk
-                        del lineup[k]
-                        k=nk
+                        lineup[k]['GuideID']=epgid
+                    elif not epgid:
+                        epgid=lineup[k]['GuideID']
+                    if epgid:
+                        ids[epgid]=k
+                    #set stream URL
                     if acct: # build limeup for single account
                         lineup[k]['URL']=self.config.format % (
                             acct.info['server_info']['url'], 
                             acct.info['server_info']['port'], 
                             acct.username, 
                             acct.password, 
-                            s[3]
+                            streamid
                         )
                     else:
                         lineup[k]['URL']='http://%s:%s/stream/%s' % (self.config.server_ip,self.config.server_port,quote(k))
