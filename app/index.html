@@ -61,11 +61,11 @@
                     html+=`</p>\n<p>`
                     if (Object.entries(stat.sources).length) {
                         html+=`<table><tr><th></th><th>user</th><th>pass</th><th>pri</th><th colspan=2>status</th><th>expires</th>`
-                        if (stat.sources_cached) html+=`<td>(cached for ${stat.sources_cached}s)</td>`
+                        if (stat.sources_cached) html+=`<td>cached for ${stat.sources_cached}s</td>`
                         html+=`</tr>\n`
                         for ([source,accounts] of Object.entries(stat.sources)) {
                             html+=`<tr><th colspan=7>${source}</th>\n`
-                            if (stat.sources_nstreams[source]) html+=`<td>(${stat.sources_ngroups[source]} groups ${stat.sources_nstreams[source]} streams)</td></tr>\n`
+                            if (stat.sources_nstreams[source]) html+=`<td>${stat.sources_ngroups[source]} groups ${stat.sources_nstreams[source]} streams</td></tr>\n`
                             for (a of accounts) html+=`<tr><td></td><td>${a.username}</td><td>${a.password}</td><td>${a.priority}</td><td>${a.active_conns}/${a.max_conns}</td><td>${a.status}</td><td>${a.expires}</td></tr>\n`
                         }
                         html+=`</table>\n`
@@ -76,7 +76,7 @@
                     html+=`</tr>\n`
                     xmltv=`${window.location.origin}/xmltv`
                     html+=`<tr><th>XMLTV</th><td><a href='${xmltv}'>${xmltv}</a></td>`
-                    if (stat.xmltv_channels) html+=`<td>(${stat.xmltv_channels} channels ${stat.xmltv_programs} programs)</td>`
+                    if (stat.xmltv_channels) html+=`<td>${stat.xmltv_channels} channels ${stat.xmltv_programs} programs cached</td>`
                     html+=`</tr></table></p>\n`
                     if (Object.entries(stat.procs).length){
                         html+=`<p><table><tr><th></th><th>pid</th><th>client</th><th>stream</th><th>cmd</th>\n`

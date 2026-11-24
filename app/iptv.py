@@ -93,14 +93,14 @@ class Config:
                     with open(self.config_file) as f:
                         self.__config=json.load(f)
                 except Exception as e:
-                    logging.error('%s reading %s',e,self.config_file)
+                    logging.error('config: %s reading %s',e,self.config_file)
             #build config from file and args
             for k,(t,d) in self.args.items():
                 try:
                     #priorirty is env > config > default
                     setattr(self,k,t(os.getenv(k.upper(),self.__config.get(k,d))))
                 except Exception as e:
-                    logging.warning('config %s: %s',k,e)
+                    logging.warning('config: %s parsing %s',e,k)
 
             #set global uppercasing and handle uppercasing of list values
             global UPPER
@@ -151,7 +151,7 @@ class Config:
                             if t is bool and type(v) is str:
                                 v=int(v) #str to int before cast to bool
                             self.__config[k]=t(v)
-                            logging.info('config: updated %s=%s',k,v)
+                            logging.info('config: set %s=%s',k,v)
             self.write()
 
     async def get_accounts(self):
@@ -160,7 +160,7 @@ class Config:
             accounts={}
             for url,source in self.sources.items():
                 if source.get('disabled'):
-                    logging.debug('source %s is disabled',url)
+                    logging.debug('config: source %s is disabled',url)
                     continue
                 for account in source.get('accounts',[]):
                     try:
@@ -185,7 +185,7 @@ class Config:
                 s['disabled']=bool(int(disabled))
             if priority is not None:
                 s['priority']=int(priority)
-            logging.info('source %s set disabled=%s priority=%s',update,s['disabled'],s['priority'])
+            logging.info('config: set %s disabled=%s priority=%s',update,s['disabled'],s['priority'])
             #update sources in JSON config and save
             self.__config['sources']=self.sources.copy()
             self.write()
@@ -202,7 +202,7 @@ class Config:
                         'password':password
                     }
                 )
-                logging.info('config: added source %s username %s password %s',add,username,password)
+                logging.info('config: added %s %s %s',add,username,password)
                 #update sources in JSON config and save
                 self.__config['sources']=self.sources.copy()
                 self.write()
@@ -217,7 +217,7 @@ class Config:
             except ValueError:
                 a['disabled']=True
                 accounts.remove(a)
-            logging.info('config: removed source %s username %s password %s',remove,username,password)
+            logging.info('config: removed %s %s %s',remove,username,password)
             #update sources in JSON config and save
             self.__config['sources']=self.sources.copy()
             self.write()
@@ -234,7 +234,7 @@ class Config:
                 #find account with disabled flag set and unset it
                 a['disabled']=True
                 del accounts[accounts.index(a)]['disabled']
-            logging.info('config: source %s username %s password %s set disabled=%s',source,username,password,disabled)
+            logging.info('config: set %s %s %s disabled=%s',source,username,password,disabled)
             self.__config['sources']=self.sources.copy()
             self.write()
 
@@ -413,10 +413,10 @@ class Data:
         for p in getattr(self.config,k):
             try:
                 p,s=p.split('=',1) if '=' in p else (p,'')
-                logging.debug('lineup: compiling %s=%s%s',k,p,'='+s if s else '')
+                logging.debug('lineup: compiling %s %s%s',k,p,'='+s if s else '')
                 crex.append((re.compile(p),s))
             except Exception as e:
-                logging.warning('lineup: %s compiling %s=%s%s',e,k,p,'='+s if s else '')
+                logging.warning('lineup: %s compiling %s %s%s',e,k,p,'='+s if s else '')
         await asyncio.sleep(0)
         return crex
 
@@ -496,30 +496,27 @@ class Data:
                         logging.debug('lineup: map %s %s %s=%s',url,name,epgid,map_name_id[name].lower())
                         epgid=map_name_id[name].lower()
                     elif epgid in map_id_name:
-                        logging.debug('lineup: map %s %s %s=%s',url,epgid,map_id_name[epgid])
+                        logging.debug('lineup: map %s %s %s=%s',url,epgid,name,map_id_name[epgid])
                         name=map_id_name[epgid]
                     #key will be name lower/snakecased.
                     k=name.lower().replace(' ','_') 
                     #auto mapping will merge channels with different names if the epg ids match
-                    if self.config.auto_map:
-                        if epgid in ids:
+                    if self.config.auto_map and epgid in ids:
+                        if k != ids[epgid]:
                             logging.debug('lineup: automap %s %s %s=%s',url,epgid,k,ids[epgid])
                             k=ids[epgid]
-                        #deal with source order changing by keeping shortest name/key
-                        if k in lineup and len(name) < len(lineup[k]['GuideName']):
-                            sk=name.lower().replace(' ','_')
-                            logging.debug('lineup: autorename %s -> %s',k,sk)
-                            #merge sources if shorter key exists
-                            if sk in lineup:
-                                lineup[sk]['sources'].update(lineup[k]['sources'])
-                            else:
-                                lineup[sk]=lineup[k]
-                            lineup[sk].update(GuideNumber=name,GuideName=name,GuideCategory=group)
-                            if epgid:
-                                ids[epgid]=sk
-                            del lineup[k]
-                            k=sk
-                    #create/update channel and add this source
+                            #when automapping keep shortest name/key
+                            if k in lineup and len(name) < len(lineup[k]['GuideName']):
+                                sk=name.lower().replace(' ','_')
+                                logging.debug('lineup: autorename %s -> %s',k,sk)
+                                if sk in lineup: #merge sources if shorter key exists
+                                    lineup[sk]['sources'].update(lineup[k]['sources'])
+                                else: # nove to shorter key
+                                    lineup[sk]=lineup[k]
+                                    lineup[sk].update(GuideNumber=name,GuideName=name,GuideCategory=group)
+                                del lineup[k]
+                                k=sk
+                    #create channel if not in lineup and add this source
                     lineup.setdefault(k, {
                                         'GuideNumber':name,
                                         'GuideName':name, 
@@ -527,11 +524,13 @@ class Data:
                                         'GuideCategory':group,
                                         'sources':{},
                                     })['sources'][url]=streamid
-                    #ensure an EPG ID in lineup and mapped to key if possible
-                    if not lineup[k]['GuideID']:
-                        lineup[k]['GuideID']=epgid
-                    elif not epgid:
-                        epgid=lineup[k]['GuideID']
+                    #if existing lineup channel has no epgid, use this epgid and group
+                    #(sources without epgids usually have poor grouping)
+                    if epgid and not lineup[k]['GuideID']:
+                        logging.debug('lineup: update %s=%s %s',k,epgid,group)
+                        lineup[k].update(GuideID=epgid,GuideCategory=group)
+                    # map epgid to key
+                    epgid=lineup[k]['GuideID']
                     if epgid:
                         ids[epgid]=k
                     #set stream URL
@@ -557,7 +556,7 @@ class Data:
             for p,r in re_order+[(re.compile(''),'')]: #empty string at end will output all remaining groups
                 for g in sorted(groups):
                     #if group matches pattern and has not been output
-                    if p.search(g) and g not in self.group_lineup:
+                    if g not in self.group_lineup and p.search(g):
                         #output group and mark as output
                         logging.debug('lineup: ordering group %s',g)
                         streams=dict((k,l) for k,l in lineup.items() if l['GuideCategory']==g)
@@ -570,12 +569,14 @@ class Data:
         return self.group_lineup
 
     async def get_stream(self,k):
+        # rescan if needed and return stream info
         if not self.last_rescan or self.last_rescan + self.config.lineup_cache < time.time():
             await self.rescan()
         async with self.lineup_lock:
             return self.lineup.get(k)
 
     async def fetch_xmltv(self,selected_sources):
+        #fetch and cache xmltv data from each source
         self.xmltv_cache={'data':{},'channels':{},'programs':{}}
         for (url,a) in selected_sources:
             logging.info('xmltv: fetch from %s',url)
@@ -605,6 +606,7 @@ class Data:
                 logging.warning('xmltv: %s for %s %s %s',e,url,a.username,a.password)
             
     async def build_xmltv(self):
+        #build XMLTV for channels in lineup
         async with self.lineup_lock:
             ids=set(l['GuideID'] for l in self.lineup.values()) #EPG ID of channels in lineup
         writer=xmltv.Writer(**dict((k.replace('-','_'),v) for k,v in self.xmltv_cache['data'].items()))
@@ -629,6 +631,7 @@ class Data:
         return xmlout.read().decode()
 
     async def build_m3u(self,lineup):
+        # build a playlist from lineup
         m3u=[]
         m3u.append('#EXTM3U')
         for l in lineup.values():
@@ -642,6 +645,8 @@ class Data:
             #refresh account status and lineup if fetch=True, or cache expired
             if force_rescan or not self.last_rescan or self.last_rescan + self.config.lineup_cache < time.time():
                 self.last_rescan=0
+                self.groups_cache={}
+                self.streams_cache={}
                 #get lineups
                 fetched = await self.fetch_lineup(await self.select_sources(check_free=False,force_refresh=force_rescan))
                 #did we fetch the minimum sources? 
@@ -674,7 +679,7 @@ async def main(arg,m3u=None,xml=None):
     logging.basicConfig(level=config.loglevel)
     data=Data(config)
     r=parse_url(arg)
-    if r:
+    if r: #check account, generate M3U and XMLTV for it
         url,a=r[0],Account(r[1],r[2])
         await data.refresh_accts({url:[a]})
         a=data.accounts[url][0]
@@ -690,7 +695,7 @@ async def main(arg,m3u=None,xml=None):
                 await data.fetch_xmltv([(url,a)])
                 with open(xml,'w') as f:
                     f.write(await data.build_xmltv())
-    else:
+    else: #check every account in config and remove dead ones
         config=Config(arg)
         await config.reload()
         config.check=0
