@@ -10,18 +10,16 @@
 
 
 # Getting started
-A `docker-compose.yaml` and `Dockerfile` to build/run a tuner container is included. Make sure you set `SERVER_IP` in `docker-compose.yaml`. A default config will be created if it does not exist.
-
-Visit `http://SERVER_IP:SERVER_PORT/` for the web UI. On the sources tab is an import field. Paste xtream codes as `URL USERNAME PASSWORD` or a URL and hit 'Add account' to import it.
+A `docker-compose.yaml` and `Dockerfile` to build/run a tuner container is included. Make sure you set `SERVER_IP` in `docker-compose.yaml`. Visit `http://SERVER_IP:SERVER_PORT/` for the web UI. On the sources tab is an import field. Paste xtream codes as `URL USERNAME PASSWORD` or a URL and hit 'Add account' to import it.
 
 To add the tuner to Plex you need to manually enter the `SERVER_IP:SERVER_PORT` and it should appear. When you rescan channels in Plex it refreshes accounts and fetches lineups. Once you have the group and channel name filters set properly Plex should be able to map most of them to one of your local cable/satellite provider lineups. Any manual mappings you do should stick even if you change IPTV providers, as long as you adjust the filters.
 
 If you are using Jellyfin or another IPTV player, use the M3U and XMLTV links on the status tab. XMLTV is fetched from all sources and filtered to only channels in the lineup.
 
 # Building the lineup
-A basic set of filters is preconfigured. At the bottom of the lineup tab are the groups provided by each source. `+` will create a filter to add a group, and `=` will create filter to rename a group. Hid `add` to save the filter. Next to each source is a button to view the source lineup. The `+` next to a stream will create a filter to add that stream.
+At the bottom of the lineup tab are the groups provided by each source. `+` will create a filter to add a group, and `=` will create filter to rename a group. Hid `add` to save the filter. Next to each source is a button to view the source lineup. The `+` next to a stream will create a filter to add that stream.
 
-Once the lineup is built, the `-` button will create a filter to exclude a stream and the `=` button will create filter to rename a stream.
+Once the lineup is built, the `-` button will create a filter to exclude a stream and the `=` button will create a filter to rename a stream.
 
 All match patterns and replace strings are by default uppercased. This generally makes filtering and merging easier but limits what regexes you can use. Set `UPPER` to 0 in config to disable uppercasing.
 
@@ -74,6 +72,7 @@ Options can set on the config tab or environment. A JSON editor button will open
 `CACHE=<seconds>` cache account status for the specified number of seconds.\
 `LINEUP_CACHE=<seconds>` cache lineup and XMLTV for the specified number of seconds. Defualt 86400.\
 `AUTO_MAP=0` disable automapping of channels across source lineups by EPG ID.\
+`AUTO_RENAME=0` disable per-group automatic stripping of prefixes/suffixes from channel names.\
 `AUTO_PRI=0` disable auto priority adjust of source on stream failure. Cache will be cleared to force refresh.\
 `MIN_SOURCES=<n>` require a channel have a minimum number of sources to be included in the lineup. 1 will require channels have EPG IDs.\
 `TIMEOUT=<seconds>` set a timeout on refreshing each account and lineup.\
