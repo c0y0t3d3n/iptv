@@ -253,29 +253,11 @@ Config.args.update( dict(
         buffer=(int,1024*1024) #buffer size for streaming
 ))
 
-#this will be written to the config file if it does not exist
-DEFAULT_CONFIG=dict(
-    #default group name cleanup
-    group_rename=['^USA? ?[\\|:] ?','^news.*weather$=news','^family.*kids$=kids','(basic|document).*=entertainment'],
-    #default group selection
-    groups=['^(ENTERTAINMENT|KIDS|MOVIES|MUSIC|NEWS|SPORTS)$'],
-    #group order in lineup, non-matching groups will be at end 
-    order=['LOCAL','SPORTS','NEWS','ENTERTAINMENT','MUSIC','KIDS','MOVIES'],
-    #exclude non US and west,include callsigns of locals 
-    streams=['!(CA|CAN|UK|GB|ES|LBW)[: ][-\\|: ]','! \\(?west\\)?','MYCITY.*(CALLSIGN|CALLSIGN)'],
-    #clean up local channel names, strip common tags
-    rename=['.*(CALLSIGN|CALLSIGN).*=\\1','^USA? ?[\\|: ]',' \\(?east\\)?',' HD$'],
-    #replace duplicate channels with higher def, prefer UHD,FHD,SHD
-    replace=['SHD$','FHD$','UHD$']
-)
 
 async def setup(config_file=None):
     global LOGQ
     #init config
     config=Config(config_file)
-    if config.config_file and not os.path.exists(config.config_file):
-        with open(config_file,'w') as f:
-            json.dump(DEFAULT_CONFIG,f,indent=4)
     await config.reload()
     env = await config.get_config()
     #init logging

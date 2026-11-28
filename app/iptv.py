@@ -50,6 +50,7 @@ class Config:
         lineup_cache=(int,86400),
         min_sources=(int,0),
         auto_map=(bool,True),
+        auto_rename=(bool,True),
         auto_pri=(bool,True),
         group_rename=(list,[]),
         groups=(list,[]),
@@ -453,15 +454,37 @@ class Data:
                     self.source_groups[url][i]=(g,any(p.search(g) for p,r in re_groups))
                     await asyncio.sleep(0)
                 #select streams by group or filter
-                streams_in=[ s for s in self.streams_cache[url] if \
-                    self.source_groups[url].get(s['category_id'],[None,None])[1] \
-                    or any(p.search(upper(s['name'])) for p,r in re_streams) ]
+                streams_in=[ s.copy() for s in self.streams_cache[url] if \
+                    ( self.source_groups[url].get(s['category_id'],[None,None])[1] \
+                    or any(p.search(upper(s['name'])) for p,r in re_streams) ) \
+                    and not any(p.search(upper(s['name'])) for p,r in re_streams_exclude) ]
+                #if auto renaming, strip longest common prefix and suffix from each selected group's streams
+                if self.config.auto_rename:
+                    for i,g in self.source_groups[url].items():
+                        if g[1]: #if this group selected
+                            gs=[s for s in streams_in if s['category_id']==i] #get streams in group
+                            if gs:
+                                parts=max([s['name'] for s in gs],key=len).split() #get longest string in list and split to words
+                                #strip prefixes
+                                for i in range(len(parts)):
+                                    p=parts[i]+' '
+                                    if sum(s['name'].startswith(p) for s in gs) > len(gs)/2: #if more than half of the streams start with this pattern
+                                        logging.debug('lineup: autorename %s %s remove prefix %s',url,g[0],p)
+                                        for s in gs: #if a streams starts with part, remove it
+                                            if s['name'].startswith(p):
+                                                s['name']=s['name'][len(p):]
+                                #strip suffixes
+                                for i in range(len(parts)-1,0,-1):
+                                    p=' '+parts[i]
+                                    if sum(s['name'].endswith(p) for s in gs) > len(gs)/2: #if more than half of the streams start with this pattern
+                                        logging.debug('lineup: autorename %s %s remove suffix %s',url,g[0],p)
+                                        for s in gs: #if a streams starts with part, remove it
+                                            if s['name'].endswith(p):
+                                                s['name']=s['name'][:-len(p)]
                 #remove and rename streams
                 streams=[]
                 for s in streams_in:
                     n=upper(s['name'])
-                    if  any(p.search(n) for p,r in re_streams_exclude):
-                        continue
                     for p,r in re_rename:
                         n=p.sub(r,n)
                     # each stream is name, EPG ID, group name, source stream ID,
@@ -505,10 +528,10 @@ class Data:
                         if k != ids[epgid]:
                             logging.debug('lineup: automap %s %s %s=%s',url,epgid,k,ids[epgid])
                             k=ids[epgid]
-                            #when automapping keep shortest name/key
+                            #when autorenaming keep shortest name/key
                             if k in lineup and len(name) < len(lineup[k]['GuideName']):
                                 sk=name.lower().replace(' ','_')
-                                logging.debug('lineup: autorename %s -> %s',k,sk)
+                                logging.debug('lineup: automap %s to %s',k,sk)
                                 if sk in lineup: #merge sources if shorter key exists
                                     lineup[sk]['sources'].update(lineup[k]['sources'])
                                 else: # nove to shorter key
