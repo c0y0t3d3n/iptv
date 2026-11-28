@@ -348,7 +348,6 @@ class Data:
                         self.accounts.setdefault(url,[]).append(ra)
                         if ra.info and not ra.active(): #account was fetched and is not active, disable it.
                             await self.config.update_account(source=url,username=a.username,password=a.password,disabled=True)
-                        await asyncio.sleep(self.config.delay)
                 self.last_refresh=time.time()
             else:
                 logging.debug('refresh: accounts cached for %ss',int(self.config.cache+self.last_refresh-time.time()))
@@ -402,7 +401,6 @@ class Data:
                     )      
                     streams.append(s)
                     sources_fetched.add(url)
-                    await asyncio.sleep(0)
                 logging.debug('fetch: %s %s groups %s streams',url,len(self.groups_cache[url]),len(self.streams_cache[url]))
             except Exception as e:
                 logging.warning('fetch: %s for %s %s %s',e,url,a.username,a.password)
@@ -418,7 +416,6 @@ class Data:
                 crex.append((re.compile(p),s))
             except Exception as e:
                 logging.warning('lineup: %s compiling %s %s%s',e,k,p,'='+s if s else '')
-        await asyncio.sleep(0)
         return crex
 
     async def build_lineup(self,acct=None):
@@ -452,19 +449,20 @@ class Data:
                         g=p.sub(r,g)
                     #id:(renamed group, selected)
                     self.source_groups[url][i]=(g,any(p.search(g) for p,r in re_groups))
-                    await asyncio.sleep(0)
+                await asyncio.sleep(0)
                 #select streams by group or filter
                 streams_in=[ s.copy() for s in self.streams_cache[url] if \
                     ( self.source_groups[url].get(s['category_id'],[None,None])[1] \
                     or any(p.search(upper(s['name'])) for p,r in re_streams) ) \
                     and not any(p.search(upper(s['name'])) for p,r in re_streams_exclude) ]
+                await asyncio.sleep(0)
                 #if auto renaming, strip longest common prefix and suffix from each selected group's streams
                 if self.config.auto_rename:
                     for i,g in self.source_groups[url].items():
                         if g[1]: #if this group selected
                             gs=[s for s in streams_in if s['category_id']==i] #get streams in group
                             if gs:
-                                parts=max([s['name'] for s in gs],key=len).split() #get longest string in list and split to words
+                                parts=max((s['name'] for s in gs),key=len).split() #get longest string in list and split to words
                                 #strip prefixes
                                 for i in range(len(parts)):
                                     p=parts[i]+' '
@@ -481,6 +479,7 @@ class Data:
                                         for s in gs: #if a streams starts with part, remove it
                                             if s['name'].endswith(p):
                                                 s['name']=s['name'][:-len(p)]
+                    await asyncio.sleep(0)
                 #remove and rename streams
                 streams=[]
                 for s in streams_in:
@@ -494,7 +493,7 @@ class Data:
                         self.source_groups[url].get(s['category_id'],[str(s['category_id'])])[0],
                         s['stream_id']
                     ])
-                    await asyncio.sleep(0)
+                await asyncio.sleep(0)
                 #replace channels without pattern if channel with pattern exists
                 for p,r in re_replace:
                     replaced=set()
@@ -504,11 +503,11 @@ class Data:
                     #rename name+pattern to name to replace channel
                     for s in streams:
                         s[0]=p.sub('',s[0])
-                        await asyncio.sleep(0)
+                await asyncio.sleep(0)
                 #strip any remaining leading/trailing whitespace
                 for s in streams:
                     s[0]=s[0].strip()
-                    await asyncio.sleep(0)
+                await asyncio.sleep(0)
                 if streams: #this source is good
                     nsources+=1
                 logging.debug('lineup: %s %s groups %s streams',url,len([g for g in self.source_groups[url].values() if g[1]]),len(streams))
@@ -567,12 +566,13 @@ class Data:
                         )
                     else:
                         lineup[k]['URL']='http://%s:%s/stream/%s' % (self.config.server_ip,self.config.server_port,quote(k))
-                    await asyncio.sleep(0)
+                await asyncio.sleep(0)
             #if set, filter to channels with EPG IDs and at least minimum sources (or manually mapped) 
             if self.config.min_sources:
                 #ensure the minimum is not > num sources in case a source is down 
                 min_sources=min(nsources,self.config.min_sources)
                 lineup=dict((k,l) for k,l in lineup.items() if l['GuideID'] and len(l['sources'])>=min_sources or l['GuideID'] in map_id_name)
+                await asyncio.sleep(0)
             # now order the final lineup
             self.lineup={}
             groups=set(l['GuideCategory']for l in lineup.values())
@@ -585,7 +585,7 @@ class Data:
                         streams=dict((k,l) for k,l in lineup.items() if l['GuideCategory']==g)
                         self.lineup.update(streams)
                         self.group_lineup.setdefault(g,[]).extend(streams.values())
-                        await asyncio.sleep(0)
+            await asyncio.sleep(0)
             logging.debug('lineup: %s groups, %s streams',len(self.group_lineup),len(self.lineup))
         except Exception as e:
             logging.exception(e)
